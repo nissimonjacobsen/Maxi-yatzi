@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Maxi Yatzy – 6 terninger</title>
+<style>
+  :root{
+    --bg:#0f3d2e; --felt:#14563f; --ink:#f4f1e8; --muted:#b9d3c6;
+    --die:#fffdf7; --pip:#1d1d1d; --held:#f2b632; --accent:#f2b632;
+    --row:#ffffff10; --line:#ffffff22;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  body{min-height:100vh;display:flex;flex-direction:column;align-items:center}
+  .wrap{width:100%;max-width:480px;padding:12px 12px 40px}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  h1{font-size:20px;margin:0;letter-spacing:.5px}
+  .small-btn{background:#ffffff18;color:var(--ink);border:1px solid var(--line);
+    border-radius:10px;padding:8px 12px;font-size:14px}
+  .table{background:radial-gradient(circle at 50% 30%,#1b6b4f,var(--felt));
+    border-radius:18px;padding:16px 10px 14px;box-shadow:inset 0 0 30px #0006}
+  .turn{text-align:center;font-size:15px;color:var(--muted);margin-bottom:10px;min-height:20px}
+  .turn b{color:var(--ink)}
+  .dice{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;justify-items:center}
+  .dice{gap:26px 6px;perspective:900px}
+  .dw{width:88px;height:92px;position:relative;cursor:pointer;perspective:420px;perspective-origin:50% 20%}
+  .shadow{position:absolute;left:50%;bottom:4px;width:70px;height:16px;margin-left:-35px;border-radius:50%;
+    background:radial-gradient(ellipse at center,#000b 0%,#0005 45%,#0000 72%);transition:all .2s}
+  .lift{position:absolute;left:12px;top:6px;width:64px;height:64px;transform-style:preserve-3d;transition:transform .2s}
+  .cube{width:100%;height:100%;position:relative;transform-style:preserve-3d;
+    transition:transform var(--dur,1s) cubic-bezier(.12,.62,.22,1)}
+  .face{position:absolute;inset:0;border-radius:11px;padding:9px;
+    display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
+    background:radial-gradient(circle at 28% 22%,#ffffff 0%,#f6f1e4 45%,#e2d9c4 100%);
+    box-shadow:inset 0 0 0 1px #0000000d,inset -3px -4px 8px #00000018,inset 3px 3px 6px #ffffffaa;
+    backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  .f1{transform:translateZ(32px)}
+  .f6{transform:rotateY(180deg) translateZ(32px)}
+  .f2{transform:rotateY(90deg) translateZ(32px)}
+  .f5{transform:rotateY(-90deg) translateZ(32px)}
+  .f3{transform:rotateX(90deg) translateZ(32px)}
+  .f4{transform:rotateX(-90deg) translateZ(32px)}
+  .core{position:absolute;inset:3px;background:#d9cfb8;border-radius:6px}
+  .core.cx{transform:rotateX(90deg)} .core.cy{transform:rotateY(90deg)}
+  .pip{width:12px;height:12px;border-radius:50%;align-self:center;justify-self:center;
+    background:radial-gradient(circle at 38% 35%,#4a4a4a 0%,#151515 60%,#000 100%);
+    box-shadow:inset 0 2px 2px #000c,0 1px 0 #ffffff99}
+  .f1 .pip{width:16px;height:16px;background:radial-gradient(circle at 38% 35%,#e0484a,#a11417 70%,#6d0c0e)}
+  .dw.blank .cube{opacity:.45}
+  .dw.held .lift{transform:translateY(-8px)}
+  .dw.held .shadow{background:radial-gradient(ellipse at center,#f2b632cc 0%,#f2b63255 50%,#0000 75%);
+    width:84px;margin-left:-42px;height:20px;bottom:0}
+  .dw.held .face{box-shadow:inset 0 0 0 3px var(--held),inset -3px -4px 8px #00000018}
+  .dw.held::after{content:"HOLDT";position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);
+    font-size:11px;font-weight:800;color:var(--held);letter-spacing:1px}
+  .dw.rolling .lift{animation:hop var(--dur,1s) linear both}
+  .dw.rolling .shadow{animation:shad var(--dur,1s) linear both}
+  @keyframes hop{
+    0%{transform:translate3d(0,0,0)}
+    14%{transform:translate3d(calc(var(--dx)*1px),-70px,40px);animation-timing-function:ease-in}
+    32%{transform:translate3d(calc(var(--dx)*-.5px),0,0);animation-timing-function:ease-out}
+    46%{transform:translate3d(calc(var(--dx)*.4px),-30px,20px);animation-timing-function:ease-in}
+    60%{transform:translate3d(calc(var(--dx)*-.2px),0,0);animation-timing-function:ease-out}
+    70%{transform:translate3d(calc(var(--dx)*.1px),-10px,5px);animation-timing-function:ease-in}
+    80%,100%{transform:translate3d(0,0,0)}}
+  @keyframes shad{
+    0%{transform:scale(1);opacity:1}14%{transform:scale(.55);opacity:.4}32%{transform:scale(1);opacity:1}
+    46%{transform:scale(.75);opacity:.65}60%{transform:scale(1);opacity:1}70%{transform:scale(.9)}80%,100%{transform:scale(1);opacity:1}}
+  .sound{font-size:18px;padding:6px 10px}
+  .small-btn.on{background:var(--accent);color:#2a1e00;border-color:var(--accent)}
+  .dw.shaking .lift{animation:wiggle .11s ease-in-out infinite alternate}
+  .dw.shaking:nth-child(2n) .lift{animation-duration:.09s;animation-direction:alternate-reverse}
+  .dw.shaking:nth-child(3n) .lift{animation-duration:.13s}
+  @keyframes wiggle{0%{transform:translate3d(-4px,-6px,10px) rotateZ(-10deg)}100%{transform:translate3d(5px,-2px,4px) rotateZ(9deg)}}
+  .roll.shaking{transform:scale(.97);box-shadow:0 2px 0 #b8861b}
+  .controls{margin-top:30px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .roll{width:100%;font-size:20px;font-weight:700;padding:16px;border-radius:14px;border:0;
+    background:var(--accent);color:#2a1e00;box-shadow:0 4px 0 #b8861b}
+  .roll:active{transform:translateY(3px);box-shadow:0 1px 0 #b8861b}
+  .roll:disabled{background:#8a8a7a;box-shadow:0 4px 0 #5e5e52;color:#333}
+  .info{font-size:14px;color:var(--muted);text-align:center}
+  .info b{color:var(--ink)}
+  .hint{font-size:12px;color:var(--muted);text-align:center;margin-top:4px}
+
+  .card{margin-top:16px;background:#0b2f23;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:center}
+  th:first-child,td:first-child{text-align:left;padding-left:10px}
+  thead th{background:#ffffff10;font-size:13px}
+  thead th.cur{background:var(--accent);color:#2a1e00}
+  td.cat small{color:var(--muted);font-size:11px;display:block}
+  td.cell{min-width:46px}
+  td.cell.cur.open{background:#ffffff08}
+  td.cell .prev{display:inline-block;min-width:34px;padding:4px 6px;border-radius:8px;
+    border:1px dashed #ffffff55;color:var(--muted)}
+  td.cell .prev.good{border-color:var(--accent);color:var(--accent);font-weight:700}
+  td.cell.cur.open{cursor:pointer}
+  tr.sum td{background:#ffffff0c;font-weight:700}
+  tr.total td{background:var(--accent);color:#2a1e00;font-weight:800;font-size:15px}
+  .scratch{color:#ff8f8f}
+
+  .modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;padding:20px;z-index:10}
+  .modal.show{display:flex}
+  .box{background:#103a2c;border:1px solid var(--line);border-radius:16px;padding:18px;width:100%;max-width:360px}
+  .box h2{margin:0 0 10px;font-size:18px}
+  .box p{color:var(--muted);font-size:14px;margin:6px 0 14px}
+  .box label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
+  .box input,.box select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);
+    background:#0b2f23;color:var(--ink);font-size:16px}
+  .row{display:flex;gap:8px;margin-top:16px}
+  .row button{flex:1;padding:12px;border-radius:10px;border:0;font-size:15px;font-weight:600}
+  .ok{background:var(--accent);color:#2a1e00}
+  .cancel{background:#ffffff18;color:var(--ink)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;
+    color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎲 Maxi Yatzy</h1>
+    <div style="display:flex;gap:8px">
+      <button class="small-btn sound" id="shakeBtn" aria-label="Ryst for at slå">📳</button>
+      <button class="small-btn sound" id="soundBtn" aria-label="Lyd til/fra">🔊</button>
+      <button class="small-btn" id="newBtn">Nyt spil</button>
+    </div>
+  </header>
+
+  <div class="table">
+    <div class="turn" id="turn"></div>
+    <div class="dice" id="dice"></div>
+    <div class="controls">
+      <button class="roll" id="rollBtn">Slå</button>
+      <div class="info" id="info"></div>
+      <div class="hint">Tryk på en terning for at holde den. Hold knappen nede for at ryste bægeret – slip for at slå. Tryk på et felt i blokken for at skrive point.</div>
+    </div>
+  </div>
+
+  <div class="card"><table id="sheet"></table></div>
+</div>
+
+<div class="modal" id="setup">
+  <div class="box">
+    <h2>Nyt spil</h2>
+    <label>Antal spillere</label>
+    <select id="nPlayers">
+      <option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+    </select>
+    <div id="names"></div>
+    <div class="row">
+      <button class="cancel" id="setupCancel">Annuller</button>
+      <button class="ok" id="setupOk">Start</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="confirm">
+  <div class="box">
+    <h2 id="cTitle"></h2>
+    <p id="cText"></p>
+    <div class="row">
+      <button class="cancel" id="cNo">Annuller</button>
+      <button class="ok" id="cYes">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CATS = [
+  {id:'1', name:'1\'ere', up:true, f:d=>cnt(d)[1]*1},
+  {id:'2', name:'2\'ere', up:true, f:d=>cnt(d)[2]*2},
+  {id:'3', name:'3\'ere', up:true, f:d=>cnt(d)[3]*3},
+  {id:'4', name:'4\'ere', up:true, f:d=>cnt(d)[4]*4},
+  {id:'5', name:'5\'ere', up:true, f:d=>cnt(d)[5]*5},
+  {id:'6', name:'6\'ere', up:true, f:d=>cnt(d)[6]*6},
+  {id:'p1', name:'1 par', f:d=>{const p=pairs(d);return p.length?p[0]*2:0}},
+  {id:'p2', name:'2 par', f:d=>{const p=pairs(d);return p.length>=2?(p[0]+p[1])*2:0}},
+  {id:'p3', name:'3 par', f:d=>{const p=pairs(d);return p.length>=3?(p[0]+p[1]+p[2])*2:0}},
+  {id:'k3', name:'3 ens', f:d=>nKind(d,3)},
+  {id:'k4', name:'4 ens', f:d=>nKind(d,4)},
+  {id:'k5', name:'5 ens', f:d=>nKind(d,5)},
+  {id:'ss', name:'Lille straight', sub:'1-2-3-4-5', f:d=>has(d,[1,2,3,4,5])?15:0},
+  {id:'ls', name:'Stor straight', sub:'2-3-4-5-6', f:d=>has(d,[2,3,4,5,6])?20:0},
+  {id:'fs', name:'Royal straight', sub:'1-2-3-4-5-6', f:d=>has(d,[1,2,3,4,5,6])?21:0},
+  {id:'hu', name:'Hus', sub:'3 + 2 ens', f:d=>combo(d,3,2)},
+  {id:'vi', name:'Villa', sub:'3 + 3 ens', f:d=>combo(d,3,3)},
+  {id:'ta', name:'Tårn', sub:'4 + 2 ens', f:d=>combo(d,4,2)},
+  {id:'ch', name:'Chance', f:d=>d.reduce((a,b)=>a+b,0)},
+  {id:'my', name:'Maxi Yatzy', sub:'6 ens = 100', f:d=>{const c=cnt(d);return [1,2,3,4,5,6].some(v=>c[v]===6)?100:0}},
+];
+const BONUS_LIMIT=84, BONUS=50;
+
+function cnt(d){const c=[0,0,0,0,0,0,0];d.forEach(v=>c[v]++);return c}
+function pairs(d){const c=cnt(d),r=[];for(let v=6;v>=1;v--){if(c[v]>=2)r.push(v)}return r}
+function nKind(d,n){const c=cnt(d);for(let v=6;v>=1;v--)if(c[v]>=n)return v*n;return 0}
+function has(d,arr){const c=cnt(d);return arr.every(v=>c[v]>=1)}
+function combo(d,a,b){const c=cnt(d);let best=0;
+  for(let x=1;x<=6;x++)for(let y=1;y<=6;y++){if(x===y)continue;
+    if(c[x]>=a&&c[y]>=b)best=Math.max(best,x*a+y*b)}return best}
+
+const PIPS={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
+
+let S; // state
+function freshState(names){
+  return {players:names.map(n=>({name:n,scores:{},saved:0})),cur:0,
+    dice:[0,0,0,0,0,0],held:[false,false,false,false,false,false],rollsLeft:3,rolled:false};
+}
+function save(){try{localStorage.setItem('maxiyatzy',JSON.stringify(S))}catch(e){}}
+function load(){try{const s=JSON.parse(localStorage.getItem('maxiyatzy'));if(s&&s.players)return s}catch(e){}return null}
+
+const $=id=>document.getElementById(id);
+
+/* ---------- Lyd (syntetiseret, ingen filer) ---------- */
+let AC=null, soundOn=true;
+try{soundOn=localStorage.getItem('maxiyatzy_sound')!=='off'}catch(e){}
+function audio(){
+  if(!soundOn)return null;
+  try{
+    if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+    if(AC.state==='suspended')AC.resume();
+  }catch(e){return null}
+  return AC;
+}
+let noiseBuf=null;
+function noise(ac){
+  if(noiseBuf)return noiseBuf;
+  const len=Math.floor(ac.sampleRate*0.05);
+  noiseBuf=ac.createBuffer(1,len,ac.sampleRate);
+  const d=noiseBuf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3);
+  return noiseBuf;
+}
+// ét "klak" – terning mod bord/terning
+function clack(t,vol){
+  const ac=audio();if(!ac)return;
+  const src=ac.createBufferSource();src.buffer=noise(ac);
+  src.playbackRate.value=0.8+Math.random()*0.6;
+  const bp=ac.createBiquadFilter();bp.type='bandpass';
+  bp.frequency.value=1800+Math.random()*2600;bp.Q.value=2+Math.random()*3;
+  const g=ac.createGain();g.gain.setValueAtTime(vol,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.06);
+  src.connect(bp).connect(g).connect(ac.destination);src.start(t);
+  // lille "tok" af træ/plastik
+  const o=ac.createOscillator();o.type='triangle';
+  o.frequency.setValueAtTime(600+Math.random()*500,t);
+  o.frequency.exponentialRampToValueAtTime(180,t+0.04);
+  const g2=ac.createGain();g2.gain.setValueAtTime(vol*0.35,t);
+  g2.gain.exponentialRampToValueAtTime(0.001,t+0.05);
+  o.connect(g2).connect(ac.destination);o.start(t);o.stop(t+0.06);
+}
+function rollSound(nDice,dur){
+  const ac=audio();if(!ac)return;
+  const t0=ac.currentTime;
+  // ryst i hånden
+  for(let i=0;i<6;i++)clack(t0+i*0.035+Math.random()*0.02,0.12);
+  // terningerne hopper og falder til ro
+  const hits=6+nDice*3;
+  for(let i=0;i<hits;i++){
+    const p=i/hits;
+    const t=t0+0.12+Math.pow(p,1.4)*(dur-0.15)+Math.random()*0.03;
+    clack(t,0.55*(1-p*0.7)*(0.6+Math.random()*0.4));
+  }
+}
+function holdSound(on){
+  const ac=audio();if(!ac)return;
+  const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();
+  o.type='sine';o.frequency.setValueAtTime(on?520:380,t);
+  o.frequency.exponentialRampToValueAtTime(on?780:260,t+0.07);
+  g.gain.setValueAtTime(0.12,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.1);
+  o.connect(g).connect(ac.destination);o.start(t);o.stop(t+0.12);
+}
+function scoreSound(good){
+  const ac=audio();if(!ac)return;
+  const notes=good?[523,659,784]:[330,262];
+  notes.forEach((f,i)=>{
+    const t=ac.currentTime+i*0.09,o=ac.createOscillator(),g=ac.createGain();
+    o.type='triangle';o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.15,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.25);
+    o.connect(g).connect(ac.destination);o.start(t);o.stop(t+0.3);
+  });
+}
+function renderSoundBtn(){$('soundBtn').textContent=soundOn?'🔊':'🔇'}
+$('soundBtn').onclick=()=>{
+  soundOn=!soundOn;try{localStorage.setItem('maxiyatzy_sound',soundOn?'on':'off')}catch(e){}
+  renderSoundBtn();if(soundOn)holdSound(true);
+};
+renderSoundBtn();
+
+/* ---------- 3D-terninger ---------- */
+let rolling=false;
+// hvilken rotation af kuben der viser hver værdi forrest
+const ORI={1:[0,0],2:[0,-90],3:[-90,0],4:[90,0],5:[0,90],6:[0,180]};
+let rot=[0,1,2,3,4,5].map(()=>({x:0,y:0,z:0}));
+function cubeT(r){return `rotateZ(${r.z}deg) rotateX(${r.x}deg) rotateY(${r.y}deg)`}
+function syncRot(){
+  S.dice.forEach((v,i)=>{const o=ORI[v||1],r=rot[i];
+    r.x=o[0]+360*Math.round((r.x-o[0])/360);
+    r.y=o[1]+360*Math.round((r.y-o[1])/360);
+  });
+}
+function buildDie(){
+  const dw=document.createElement('div');dw.className='dw';
+  dw.innerHTML='<div class="shadow"></div><div class="lift"><div class="cube">'+
+    '<div class="core"></div><div class="core cx"></div><div class="core cy"></div>'+
+    [1,2,3,4,5,6].map(v=>`<div class="face f${v}">`+
+      [0,1,2,3,4,5,6,7,8].map(k=>`<div class="${PIPS[v].includes(k)?'pip':''}"></div>`).join('')+
+    '</div>').join('')+'</div></div>';
+  return dw;
+}
+function renderDice(){
+  const el=$('dice');
+  if(el.children.length!==6){el.innerHTML='';for(let i=0;i<6;i++)el.appendChild(buildDie())}
+  syncRot();
+  [...el.children].forEach((dw,i)=>{
+    dw.className='dw'+(S.held[i]?' held':'')+(S.dice[i]?'':' blank');
+    const cube=dw.querySelector('.cube');
+    cube.style.transition='none';cube.style.transform=cubeT(rot[i]);
+    dw.onclick=()=>{if(!S.rolled||rolling)return;S.held[i]=!S.held[i];holdSound(S.held[i]);save();renderDice()};
+  });
+}
+
+function totalRolls(){return S.rollsLeft+S.players[S.cur].saved}
+
+function renderControls(){
+  const p=S.players[S.cur];
+  $('turn').innerHTML=S.players.length>1?`Tur: <b>${esc(p.name)}</b>`:'';
+  const btn=$('rollBtn');
+  const left=totalRolls();
+  btn.disabled=left<=0||gameOver()||rolling;
+  btn.textContent=gameOver()?'Spillet er slut':(S.rolled?`Slå igen (${left} tilbage)`:'Slå');
+  let txt=`Slag tilbage i denne tur: <b>${S.rollsLeft}</b>`;
+  if(p.saved>0)txt+=` · Gemte slag: <b>${p.saved}</b>`;
+  $('info').innerHTML=txt;
+}
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+function upperSum(p){return CATS.filter(c=>c.up).reduce((a,c)=>a+(p.scores[c.id]||0),0)}
+function bonus(p){return upperSum(p)>=BONUS_LIMIT?BONUS:0}
+function total(p){return CATS.reduce((a,c)=>a+(p.scores[c.id]||0),0)+bonus(p)}
+function filled(p){return CATS.every(c=>c.id in p.scores)}
+function gameOver(){return S.players.every(filled)}
+
+function renderSheet(){
+  const t=$('sheet');let h='<thead><tr><th></th>';
+  S.players.forEach((p,i)=>h+=`<th class="${i===S.cur&&!gameOver()?'cur':''}">${esc(p.name)}</th>`);
+  h+='</tr></thead><tbody>';
+  const row=(c)=>{
+    let r=`<tr><td class="cat">${c.name}${c.sub?`<small>${c.sub}</small>`:''}</td>`;
+    S.players.forEach((p,i)=>{
+      const isCur=i===S.cur;
+      if(c.id in p.scores){
+        const v=p.scores[c.id];
+        r+=`<td class="cell">${v===0?'<span class="scratch">–</span>':v}</td>`;
+      }else if(isCur&&S.rolled){
+        const v=c.f(S.dice);
+        r+=`<td class="cell cur open" data-cat="${c.id}"><span class="prev ${v>0?'good':''}">${v}</span></td>`;
+      }else r+=`<td class="cell ${isCur?'cur':''}"></td>`;
+    });
+    return r+'</tr>';
+  };
+  CATS.filter(c=>c.up).forEach(c=>h+=row(c));
+  h+='<tr class="sum"><td>Sum</td>'+S.players.map(p=>`<td>${upperSum(p)}</td>`).join('')+'</tr>';
+  h+=`<tr class="sum"><td>Bonus <small style="font-weight:400;color:var(--muted)">(${BONUS_LIMIT}+)</small></td>`+
+     S.players.map(p=>`<td>${bonus(p)||''}</td>`).join('')+'</tr>';
+  CATS.filter(c=>!c.up).forEach(c=>h+=row(c));
+  h+='<tr class="total"><td>Total</td>'+S.players.map(p=>`<td>${total(p)}</td>`).join('')+'</tr>';
+  t.innerHTML=h+'</tbody>';
+  t.querySelectorAll('td.open').forEach(td=>td.onclick=()=>pick(td.dataset.cat));
+}
+
+function renderAll(){renderDice();renderControls();renderSheet()}
+
+function roll(){
+  if(rolling||totalRolls()<=0||gameOver())return;
+  if(S.rollsLeft>0)S.rollsLeft--;else S.players[S.cur].saved--;
+  const idx=[];
+  const final=S.dice.map((v,i)=>{if(S.held[i]&&S.rolled)return v;idx.push(i);return 1+Math.floor(Math.random()*6)});
+  if(!S.rolled)S.held=[false,false,false,false,false,false];
+  S.dice=final;S.rolled=true;save(); // gem resultatet med det samme
+
+  rolling=true;renderControls();
+  // skjul pointforslag mens terningerne ruller
+  $('sheet').querySelectorAll('td.open .prev').forEach(p=>p.style.visibility='hidden');
+
+  const els=[...$('dice').children];
+  let longest=0;
+  idx.forEach(i=>{
+    const dw=els[i],cube=dw.querySelector('.cube');
+    const dur=950+Math.random()*450;longest=Math.max(longest,dur);
+    const o=ORI[final[i]],r=rot[i];
+    const sx=(Math.random()<.5?-1:1),sy=(Math.random()<.5?-1:1);
+    const kx=2+Math.floor(Math.random()*3),ky=1+Math.floor(Math.random()*3);
+    // drej flere hele omgange og land på den rigtige side
+    r.x=o[0]+360*(Math.round((r.x-o[0])/360)+sx*kx);
+    r.y=o[1]+360*(Math.round((r.y-o[1])/360)+sy*ky);
+    r.z=Math.round(Math.random()*16-8);
+    dw.classList.remove('blank','held','rolling');
+    dw.style.setProperty('--dur',dur+'ms');
+    dw.style.setProperty('--dx',String(Math.round(Math.random()*36-18)));
+    void dw.offsetWidth;
+    dw.classList.add('rolling');
+    cube.style.transition='';
+    cube.style.transform=cubeT(r);
+  });
+  rollSound(idx.length,longest/1000);
+  if(navigator.vibrate){try{navigator.vibrate([20,40,20])}catch(e){}}
+  setTimeout(()=>{rolling=false;renderAll()},longest+60);
+}
+
+function pick(id){
+  if(rolling)return;
+  const c=CATS.find(x=>x.id===id);const v=c.f(S.dice);
+  const doIt=()=>{
+    const p=S.players[S.cur];
+    p.scores[id]=v;scoreSound(v>0);
+    p.saved+=S.rollsLeft; // ubrugte slag gemmes
+    const gained=S.rollsLeft;
+    nextTurn();
+    save();renderAll();
+    if(gameOver())showWinner();
+    else if(gained>0)toast(`${gained} slag gemt til senere`);
+  };
+  if(v===0)ask('Stryg felt?',`Du får 0 point i "${c.name}". Vil du stryge feltet?`,doIt);
+  else doIt();
+}
+
+function nextTurn(){
+  const n=S.players.length;
+  for(let k=1;k<=n;k++){const j=(S.cur+k)%n;if(!filled(S.players[j])){S.cur=j;break}}
+  S.dice=[0,0,0,0,0,0];S.held=[false,false,false,false,false,false];S.rollsLeft=3;S.rolled=false;
+}
+
+function showWinner(){
+  const sorted=[...S.players].sort((a,b)=>total(b)-total(a));
+  const txt=S.players.length>1
+    ?sorted.map((p,i)=>`${i+1}. ${esc(p.name)}: ${total(p)}`).join('<br>')
+    :`Din score: ${total(S.players[0])}`;
+  ask(S.players.length>1?`🏆 ${esc(sorted[0].name)} vinder!`:'Spillet er slut',txt,openSetup,'Nyt spil');
+}
+
+let toastT;
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1800)}
+
+function ask(title,text,yes,yesLabel){
+  $('cTitle').innerHTML=title;$('cText').innerHTML=text;$('cYes').textContent=yesLabel||'OK';
+  $('confirm').classList.add('show');
+  $('cYes').onclick=()=>{$('confirm').classList.remove('show');yes()};
+  $('cNo').onclick=()=>$('confirm').classList.remove('show');
+}
+
+function renderNameInputs(){
+  const n=+$('nPlayers').value,box=$('names');
+  const old=[...box.querySelectorAll('input')].map(i=>i.value);
+  box.innerHTML='';
+  for(let i=0;i<n;i++){
+    box.insertAdjacentHTML('beforeend',`<label>Spiller ${i+1}</label><input value="${esc(old[i]||('Spiller '+(i+1)))}">`);
+  }
+}
+function openSetup(){
+  if(S)$('nPlayers').value=String(S.players.length);
+  renderNameInputs();
+  if(S)[...$('names').querySelectorAll('input')].forEach((inp,i)=>{if(S.players[i])inp.value=S.players[i].name});
+  $('setupCancel').style.display=S?'':'none';
+  $('setup').classList.add('show');
+}
+$('nPlayers').onchange=renderNameInputs;
+$('setupOk').onclick=()=>{
+  const names=[...$('names').querySelectorAll('input')].map((i,k)=>i.value.trim()||('Spiller '+(k+1)));
+  S=freshState(names);save();$('setup').classList.remove('show');renderAll();
+};
+$('setupCancel').onclick=()=>$('setup').classList.remove('show');
+$('newBtn').onclick=()=>{
+  if(S&&!gameOver()&&Object.keys(S.players[0].scores).length)
+    ask('Start nyt spil?','Det nuværende spil bliver slettet.',openSetup);
+  else openSetup();
+};
+/* ---------- Raflebæger: hold knappen nede ---------- */
+let shakeLoop=null,pressT=0;
+function canRoll(){return !rolling&&totalRolls()>0&&!gameOver()}
+function startShake(){
+  if(shakeLoop||!canRoll())return;
+  $('rollBtn').classList.add('shaking');
+  [...$('dice').children].forEach((dw,i)=>{if(!(S.held[i]&&S.rolled))dw.classList.add('shaking')});
+  const rattle=()=>{const ac=audio();if(ac){const t=ac.currentTime;
+    clack(t,0.18+Math.random()*0.15);if(Math.random()<.6)clack(t+0.03+Math.random()*0.03,0.12)}};
+  rattle();shakeLoop=setInterval(rattle,85);
+}
+function stopShake(){
+  if(!shakeLoop)return false;
+  clearInterval(shakeLoop);shakeLoop=null;
+  $('rollBtn').classList.remove('shaking');
+  [...$('dice').children].forEach(dw=>dw.classList.remove('shaking'));
+  return true;
+}
+const rb=$('rollBtn');
+rb.addEventListener('pointerdown',e=>{
+  if(!canRoll())return;
+  audio(); // lås lyd op på iPhone
+  pressT=setTimeout(startShake,180);
+});
+const release=()=>{clearTimeout(pressT);if(stopShake())roll()};
+rb.addEventListener('pointerup',release);
+rb.addEventListener('pointerleave',release);
+rb.addEventListener('pointercancel',()=>{clearTimeout(pressT);stopShake()});
+rb.addEventListener('contextmenu',e=>e.preventDefault());
+rb.onclick=()=>roll(); // almindeligt tryk – roll() ignorerer dobbelte kald
+
+/* ---------- Ryst telefonen ---------- */
+let motionOn=false,motionSeen=false,lastShake=0,lastAcc=null,shakeEnergy=0,motionCheck=null;
+function onMotion(e){
+  const a=e.accelerationIncludingGravity||e.acceleration;
+  if(!a||a.x==null)return;
+  motionSeen=true;
+  if(lastAcc){
+    const d=Math.abs(a.x-lastAcc.x)+Math.abs(a.y-lastAcc.y)+Math.abs(a.z-lastAcc.z);
+    shakeEnergy=shakeEnergy*0.8+d;
+    const now=Date.now();
+    if(shakeEnergy>55&&now-lastShake>1600&&canRoll()&&!$('setup').classList.contains('show')){
+      lastShake=now;shakeEnergy=0;roll();
+    }
+  }
+  lastAcc={x:a.x,y:a.y,z:a.z};
+}
+function renderShakeBtn(){$('shakeBtn').classList.toggle('on',motionOn)}
+async function enableMotion(){
+  try{
+    if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+      const r=await DeviceMotionEvent.requestPermission();
+      if(r!=='granted'){toast('Rystelse blev ikke tilladt');return}
+    }
+  }catch(e){toast('Rystelse er blokeret her – hold knappen nede i stedet');return}
+  if(typeof window.DeviceMotionEvent==='undefined'){toast('Din telefon understøtter ikke rystelse');return}
+  window.addEventListener('devicemotion',onMotion);
+  motionOn=true;motionSeen=false;renderShakeBtn();
+  toast('Ryst telefonen for at slå!');
+  clearTimeout(motionCheck);
+  motionCheck=setTimeout(()=>{
+    if(motionOn&&!motionSeen){
+      disableMotion();
+      ask('Rystelse virker ikke her','Telefonen sender ikke bevægelser til siden, når den er åbnet inde i appen. Prøv at åbne linket i Safari eller Chrome.<br><br>Du kan altid <b>holde Slå-knappen nede</b> for at ryste bægeret og slippe for at slå.',()=>{},'OK');
+    }
+  },2500);
+}
+function disableMotion(){
+  window.removeEventListener('devicemotion',onMotion);
+  motionOn=false;renderShakeBtn();clearTimeout(motionCheck);
+}
+$('shakeBtn').onclick=()=>{if(motionOn){disableMotion();toast('Rystelse slået fra')}else enableMotion()};
+
+
+S=load();
+if(S)renderAll();else{S=null;openSetup();
+  // vis tomme terninger bag dialogen
+  S=freshState(['Spiller 1']);renderAll();S=null;}
+</script>
+</body>
+</html>
