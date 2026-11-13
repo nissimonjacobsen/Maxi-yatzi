@@ -135,7 +135,7 @@
     <div class="controls">
       <button class="roll" id="rollBtn">Slå</button>
       <div class="info" id="info"></div>
-      <div class="hint">Tryk på en terning for at holde den. Hold knappen nede for at ryste bægeret – slip for at slå. Tryk på et felt i blokken for at skrive point.</div>
+      <div class="hint">Tryk på en terning for at holde den. Ryst telefonen (📳) eller hold knappen nede for at ryste bægeret – stop eller slip for at slå. Tryk på et felt i blokken for at skrive point.</div>
     </div>
   </div>
 
@@ -481,20 +481,47 @@ $('newBtn').onclick=()=>{
     ask('Start nyt spil?','Det nuværende spil bliver slettet.',openSetup);
   else openSetup();
 };
-/* ---------- Raflebæger: hold knappen nede ---------- */
-let shakeLoop=null,pressT=0;
-function canRoll(){return !rolling&&totalRolls()>0&&!gameOver()}
-function startShake(){
+/* ---------- Raflebæger-lyd ---------- */
+// terning der rammer indersiden af et bæger: dæmpet klik + lille bund-dunk
+function cupClack(t,vol){
+  const ac=audio();if(!ac)return;
+  const src=ac.createBufferSource();src.buffer=noise(ac);
+  src.playbackRate.value=0.6+Math.random()*0.5;
+  const bp=ac.createBiquadFilter();bp.type='bandpass';
+  bp.frequency.value=900+Math.random()*1500;bp.Q.value=3+Math.random()*4;
+  const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=2600;
+  const g=ac.createGain();g.gain.setValueAtTime(vol,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.045);
+  src.connect(bp).connect(lp).connect(g).connect(ac.destination);src.start(t);
+  if(Math.random()<0.35){ // dunk mod bægerets bund/væg
+    const o=ac.createOscillator(),g2=ac.createGain();o.type='sine';
+    o.frequency.setValueAtTime(160+Math.random()*60,t);
+    o.frequency.exponentialRampToValueAtTime(70,t+0.07);
+    g2.gain.setValueAtTime(vol*0.9,t);g2.gain.exponentialRampToValueAtTime(0.001,t+0.09);
+    o.connect(g2).connect(ac.destination);o.start(t);o.stop(t+0.1);
+  }
+}
+
+/* ---------- Ryst (knap eller telefon) ---------- */
+let shakeLoop=null,pressT=0,shakeIntensity=0.6,shakeSource=null;
+function canRoll(){return !rolling&&totalRolls()>0&&!gameOver()&&!$('setup').classList.contains('show')}
+function startShake(source){
   if(shakeLoop||!canRoll())return;
+  shakeSource=source;
   $('rollBtn').classList.add('shaking');
   [...$('dice').children].forEach((dw,i)=>{if(!(S.held[i]&&S.rolled))dw.classList.add('shaking')});
-  const rattle=()=>{const ac=audio();if(ac){const t=ac.currentTime;
-    clack(t,0.18+Math.random()*0.15);if(Math.random()<.6)clack(t+0.03+Math.random()*0.03,0.12)}};
-  rattle();shakeLoop=setInterval(rattle,85);
+  const free=S.dice.filter((v,i)=>!(S.held[i]&&S.rolled)).length;
+  const rattle=()=>{
+    const ac=audio();if(!ac)return;
+    const t=ac.currentTime;
+    const n=Math.max(1,Math.round((0.5+shakeIntensity*2)*free/6*Math.random()*2));
+    for(let k=0;k<n;k++)cupClack(t+Math.random()*0.06,0.12+shakeIntensity*0.35*Math.random());
+  };
+  rattle();shakeLoop=setInterval(rattle,65);
 }
 function stopShake(){
   if(!shakeLoop)return false;
-  clearInterval(shakeLoop);shakeLoop=null;
+  clearInterval(shakeLoop);shakeLoop=null;shakeSource=null;
   $('rollBtn').classList.remove('shaking');
   [...$('dice').children].forEach(dw=>dw.classList.remove('shaking'));
   return true;
@@ -502,34 +529,45 @@ function stopShake(){
 const rb=$('rollBtn');
 rb.addEventListener('pointerdown',e=>{
   if(!canRoll())return;
-  audio(); // lås lyd op på iPhone
-  pressT=setTimeout(startShake,180);
+  audio(); // lås lyd op
+  shakeIntensity=0.6;
+  pressT=setTimeout(()=>startShake('button'),180);
 });
-const release=()=>{clearTimeout(pressT);if(stopShake())roll()};
+const release=()=>{clearTimeout(pressT);if(shakeSource==='button'&&stopShake())roll()};
 rb.addEventListener('pointerup',release);
 rb.addEventListener('pointerleave',release);
-rb.addEventListener('pointercancel',()=>{clearTimeout(pressT);stopShake()});
+rb.addEventListener('pointercancel',()=>{clearTimeout(pressT);if(shakeSource==='button')stopShake()});
 rb.addEventListener('contextmenu',e=>e.preventDefault());
-rb.onclick=()=>roll(); // almindeligt tryk – roll() ignorerer dobbelte kald
+rb.onclick=()=>roll();
 
-/* ---------- Ryst telefonen ---------- */
-let motionOn=false,motionSeen=false,lastShake=0,lastAcc=null,shakeEnergy=0,motionCheck=null;
+/* ---------- Ryst telefonen: rasler så længe du ryster, slår når du stopper ---------- */
+let motionOn=false,motionSeen=false,lastAcc=null,energy=0,lastActive=0,shakeStart=0,motionCheck=null,motionTimer=null;
+const START_AT=13, KEEP_AT=6, STOP_AFTER=380;
 function onMotion(e){
   const a=e.accelerationIncludingGravity||e.acceleration;
   if(!a||a.x==null)return;
   motionSeen=true;
   if(lastAcc){
     const d=Math.abs(a.x-lastAcc.x)+Math.abs(a.y-lastAcc.y)+Math.abs(a.z-lastAcc.z);
-    shakeEnergy=shakeEnergy*0.8+d;
+    energy=energy*0.75+d*0.25;
     const now=Date.now();
-    if(shakeEnergy>55&&now-lastShake>1600&&canRoll()&&!$('setup').classList.contains('show')){
-      lastShake=now;shakeEnergy=0;roll();
+    if(!shakeLoop){
+      if(energy>START_AT&&canRoll()){startShake('motion');shakeStart=now;lastActive=now}
+    }else if(shakeSource==='motion'){
+      if(energy>KEEP_AT)lastActive=now;
+      shakeIntensity=Math.min(1,Math.max(0.2,(energy-KEEP_AT)/30));
     }
   }
   lastAcc={x:a.x,y:a.y,z:a.z};
 }
+function motionTick(){
+  if(shakeSource==='motion'&&Date.now()-lastActive>STOP_AFTER){
+    stopShake();energy=0;roll();
+  }
+}
 function renderShakeBtn(){$('shakeBtn').classList.toggle('on',motionOn)}
 async function enableMotion(){
+  audio(); // lås lyd op mens vi har et tryk
   try{
     if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
       const r=await DeviceMotionEvent.requestPermission();
@@ -539,20 +577,28 @@ async function enableMotion(){
   if(typeof window.DeviceMotionEvent==='undefined'){toast('Din telefon understøtter ikke rystelse');return}
   window.addEventListener('devicemotion',onMotion);
   motionOn=true;motionSeen=false;renderShakeBtn();
-  toast('Ryst telefonen for at slå!');
+  clearInterval(motionTimer);motionTimer=setInterval(motionTick,60);
+  try{localStorage.setItem('maxiyatzy_motion','on')}catch(e){}
+  toast('Ryst telefonen – slå ved at stoppe');
   clearTimeout(motionCheck);
   motionCheck=setTimeout(()=>{
     if(motionOn&&!motionSeen){
       disableMotion();
-      ask('Rystelse virker ikke her','Telefonen sender ikke bevægelser til siden, når den er åbnet inde i appen. Prøv at åbne linket i Safari eller Chrome.<br><br>Du kan altid <b>holde Slå-knappen nede</b> for at ryste bægeret og slippe for at slå.',()=>{},'OK');
+      ask('Rystelse virker ikke her','Telefonen sender ikke bevægelser til siden. Åbn spillet i Chrome på <b>nissimonjacobsen.github.io/Maxi-yatzi</b>.<br><br>Du kan altid <b>holde Slå-knappen nede</b> for at ryste bægeret og slippe for at slå.',()=>{},'OK');
     }
   },2500);
 }
 function disableMotion(){
   window.removeEventListener('devicemotion',onMotion);
+  if(shakeSource==='motion')stopShake();
+  clearInterval(motionTimer);
   motionOn=false;renderShakeBtn();clearTimeout(motionCheck);
+  try{localStorage.setItem('maxiyatzy_motion','off')}catch(e){}
 }
 $('shakeBtn').onclick=()=>{if(motionOn){disableMotion();toast('Rystelse slået fra')}else enableMotion()};
+try{if(localStorage.getItem('maxiyatzy_motion')==='on'&&typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission!=='function'){
+  window.addEventListener('devicemotion',onMotion);motionOn=true;renderShakeBtn();motionTimer=setInterval(motionTick,60);
+}}catch(e){}
 
 
 S=load();
