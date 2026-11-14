@@ -2,7 +2,7 @@
 <html lang="da">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Maxi Yatzy – 6 terninger</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0f3d2e">
@@ -21,9 +21,25 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;background:var(--bg);color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  body{min-height:100vh;display:flex;flex-direction:column;align-items:center}
-  .wrap{width:100%;max-width:480px;padding:12px 12px 40px}
-  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+  body{display:flex;flex-direction:column;align-items:center}
+  .wrap{width:100%;max-width:480px;height:100vh;height:100dvh;display:flex;flex-direction:column;
+    padding:calc(8px + env(safe-area-inset-top)) 10px 0}
+  .top{flex:none}
+  .views{flex:none;display:flex;gap:6px;margin:10px 0 0;background:#0b2f23;padding:4px;border-radius:12px;border:1px solid var(--line)}
+  .views button{flex:1;padding:9px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:14px;font-weight:700}
+  .views button.on{background:var(--accent);color:#2a1e00}
+  .scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    margin-top:8px;padding-bottom:calc(16px + env(safe-area-inset-bottom));border-radius:14px}
+  .scroll .card{margin-top:0;overflow:visible}
+  .scroll thead th:first-child{border-top-left-radius:14px}
+  .scroll thead th:last-child{border-top-right-radius:14px}
+  .scroll thead th{position:sticky;top:0;z-index:2;background:#123b2d}
+  .scroll thead th.cur{background:var(--accent)}
+  .empty{padding:24px 14px;text-align:center;color:var(--muted);font-size:14px}
+  @media (max-height:780px){.dice{zoom:.8}.controls{margin-top:20px!important}.roll{padding:12px!important;font-size:18px!important}}
+  @media (max-height:700px){.dice{zoom:.68}.turn{margin-bottom:2px!important;font-size:14px}.controls{margin-top:14px!important;gap:4px!important}.table{padding:10px 10px 10px!important}h1{font-size:18px}}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
   h1{font-size:20px;margin:0;letter-spacing:.5px}
   .small-btn{background:#ffffff18;color:var(--ink);border:1px solid var(--line);
     border-radius:10px;padding:8px 12px;font-size:14px}
@@ -83,7 +99,7 @@
   .dw.shaking:nth-child(3n) .lift{animation-duration:.13s}
   @keyframes wiggle{0%{transform:translate3d(-4px,-6px,10px) rotateZ(-10deg)}100%{transform:translate3d(5px,-2px,4px) rotateZ(9deg)}}
   .roll.shaking{transform:scale(.97);box-shadow:0 2px 0 #b8861b}
-  .controls{margin-top:30px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .controls{margin-top:26px;display:flex;flex-direction:column;align-items:center;gap:8px}
   .roll{width:100%;font-size:20px;font-weight:700;padding:16px;border-radius:14px;border:0;
     background:var(--accent);color:#2a1e00;box-shadow:0 4px 0 #b8861b}
   .roll:active{transform:translateY(3px);box-shadow:0 1px 0 #b8861b}
@@ -151,6 +167,7 @@
 </head>
 <body>
 <div class="wrap">
+ <div class="top">
   <header>
     <h1 id="title">🎲 Maxi Yatzy</h1>
     <div style="display:flex;gap:8px">
@@ -167,12 +184,15 @@
     <div class="controls">
       <button class="roll" id="rollBtn">Slå</button>
       <div class="info" id="info"></div>
-      <div class="hint">Tryk på en terning for at holde den. Ryst telefonen (📳) eller hold knappen nede for at ryste bægeret – stop eller slip for at slå. Tryk på et felt i blokken for at skrive point.</div>
     </div>
   </div>
 
-  <div class="card"><table id="sheet"></table></div>
-  <div class="card series" id="seriesCard" style="display:none"></div>
+  <div class="views"><button class="on" id="vSheet">📋 Blok</button><button id="vSeries">🏆 Serie</button></div>
+ </div>
+  <div class="scroll" id="scroll">
+    <div class="card" id="sheetCard"><table id="sheet"></table></div>
+    <div class="card series" id="seriesCard" style="display:none"></div>
+  </div>
 </div>
 
 <div class="modal" id="setup">
@@ -808,22 +828,47 @@ function seriesLine(){
   return `<br><br><b>Serien efter ${S.series.games.length} spil:</b><br>`+
     st.map(r=>`${esc(r.name)}: ${r.wins} ${r.wins===1?'sejr':'sejre'}`).join('<br>');
 }
+let view='sheet';
+function setView(v){
+  view=v;
+  $('vSheet').classList.toggle('on',v==='sheet');$('vSeries').classList.toggle('on',v==='series');
+  $('sheetCard').style.display=v==='sheet'?'':'none';
+  $('seriesCard').style.display=v==='series'?'':'none';
+  $('scroll').scrollTop=0;
+  if(v==='series')renderSeries();
+}
+$('vSheet').onclick=()=>setView('sheet');
+$('vSeries').onclick=()=>setView('series');
 function renderSeries(){
   const el=$('seriesCard');
   const games=S&&S.series&&S.series.games||[];
-  if(!games.length){el.style.display='none';return}
-  el.style.display='';
+  $('vSeries').textContent=games.length?`🏆 Serie (${games.length})`:'🏆 Serie';
+  if(view!=='series')return;
+  // stilling i serien + point i det igangværende spil
   const st=standings(S.series);
-  let h=`<div class="shead">🏆 Serie · ${games.length} ${games.length===1?'spil':'spil'}</div>
-    <table><thead><tr><th>Spiller</th><th>Sejre</th><th>Point i alt</th><th>Snit</th><th>Bedste</th></tr></thead><tbody>`;
-  st.forEach((r,i)=>h+=`<tr><td>${i===0&&r.wins?'👑 ':''}${esc(r.name)}</td><td><b>${r.wins}</b></td><td>${r.points}</td><td>${Math.round(r.points/r.games)}</td><td>${r.best}</td></tr>`);
-  h+='</tbody></table><div class="glist">';
-  games.slice().reverse().slice(0,10).forEach((g,i)=>{
-    const names=Object.keys(g.sc),best=Math.max(...names.map(n=>g.sc[n]));
-    h+=`<div><span>Spil ${games.length-i} · ${(VARIANTS[g.v]||VARIANTS.maxi).name}</span> `+
-      names.map(n=>g.sc[n]===best&&names.length>1?`<b>${esc(n)} ${g.sc[n]}</b>`:`${esc(n)} ${g.sc[n]}`).join(' · ')+'</div>';
+  const live=S.players&&!gameOver();
+  (S.players||[]).forEach(p=>{if(!st.some(r=>r.name===p.name))st.push({name:p.name,wins:0,games:0,points:0,best:0})});
+  const nowOf=n=>{const p=(S.players||[]).find(x=>x.name===n);return p?total(p):null};
+  let h=`<div class="shead">🏆 Serie · ${games.length} ${games.length===1?'spil':'spil'} færdige</div>
+    <table><thead><tr><th>Spiller</th><th>Sejre</th><th>Point</th><th>Snit</th><th>Bedste</th>${live?'<th>Nu</th>':''}</tr></thead><tbody>`;
+  st.forEach((r,i)=>{
+    const now=nowOf(r.name);
+    h+=`<tr><td>${i===0&&r.wins?'👑 ':''}${esc(r.name)}</td><td><b>${r.wins}</b></td><td>${r.points}</td>`+
+      `<td>${r.games?Math.round(r.points/r.games):'–'}</td><td>${r.best||'–'}</td>${live?`<td style="color:var(--accent);font-weight:700">${now??''}</td>`:''}</tr>`;
   });
-  el.innerHTML=h+'</div>';
+  h+='</tbody></table>';
+  if(!games.length)h+='<div class="empty">Serien bliver opdateret, når et spil er færdigt.<br>Start næste spil med <b>Nyt spil</b> for at fortsætte serien.</div>';
+  else{
+    h+='<div class="glist">';
+    games.slice().reverse().forEach((g,i)=>{
+      const names=Object.keys(g.sc),best=Math.max(...names.map(n=>g.sc[n]));
+      const d=new Date(g.at);
+      h+=`<div><span>Spil ${games.length-i} · ${(VARIANTS[g.v]||VARIANTS.maxi).name} · ${d.getDate()}/${d.getMonth()+1} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}</span><br>`+
+        names.map(n=>g.sc[n]===best&&names.length>1?`<b>${esc(n)} ${g.sc[n]}</b>`:`${esc(n)} ${g.sc[n]}`).join(' · ')+'</div>';
+    });
+    h+='</div>';
+  }
+  el.innerHTML=h;
 }
 
 /* ---------- Online multiplayer (MQTT) ---------- */
