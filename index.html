@@ -31,8 +31,8 @@
     border-radius:18px;padding:16px 10px 14px;box-shadow:inset 0 0 30px #0006}
   .turn{text-align:center;font-size:15px;color:var(--muted);margin-bottom:10px;min-height:20px}
   .turn b{color:var(--ink)}
-  .dice{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;justify-items:center}
-  .dice{gap:26px 6px;perspective:900px}
+  .dice{display:flex;flex-wrap:wrap;justify-content:center;max-width:300px;margin:0 auto}
+  .dice{gap:26px 14px;perspective:900px}
   .dw{width:88px;height:92px;position:relative;cursor:pointer;perspective:420px;perspective-origin:50% 20%}
   .shadow{position:absolute;left:50%;bottom:4px;width:70px;height:16px;margin-left:-35px;border-radius:50%;
     background:radial-gradient(ellipse at center,#000b 0%,#0005 45%,#0000 72%);transition:all .2s}
@@ -136,13 +136,23 @@
   .netbar b{color:var(--accent);letter-spacing:2px}
   .or{text-align:center;color:var(--muted);font-size:13px;margin:16px 0 4px}
   #joinCode{text-transform:uppercase;text-align:center;letter-spacing:6px;font-size:22px;font-weight:700}
+  .tabs.vt .tab{font-size:13px;padding:8px 4px;line-height:1.25}
+  .tabs.vt .tab small{display:block;font-size:10px;font-weight:500;opacity:.8}
+  .chk{display:flex!important;align-items:center;gap:8px;margin-top:12px!important;color:var(--ink)!important;font-size:14px!important}
+  .chk input{width:20px!important;height:20px}
+  .series{padding-bottom:6px}
+  .shead{padding:10px;font-weight:700;background:#ffffff10}
+  .glist{padding:8px 10px;font-size:12px;color:var(--muted);line-height:1.7}
+  .glist span{color:var(--ink);opacity:.7}
+  .glist b{color:var(--accent)}
+  .stack select{width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0b2f23;color:var(--ink);font-size:15px}
   .stack button{display:block;width:100%;margin-top:8px;padding:12px;border-radius:10px;border:0;font-size:15px;font-weight:600}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>🎲 Maxi Yatzy</h1>
+    <h1 id="title">🎲 Maxi Yatzy</h1>
     <div style="display:flex;gap:8px">
       <button class="small-btn sound" id="shakeBtn" aria-label="Ryst for at slå">📳</button>
       <button class="small-btn sound" id="soundBtn" aria-label="Lyd til/fra">🔊</button>
@@ -162,11 +172,13 @@
   </div>
 
   <div class="card"><table id="sheet"></table></div>
+  <div class="card series" id="seriesCard" style="display:none"></div>
 </div>
 
 <div class="modal" id="setup">
   <div class="box">
     <h2>Nyt spil</h2>
+    <div class="tabs vt" id="variantTabs"></div>
     <div class="tabs"><button class="tab on" id="tabLocal">Denne telefon</button><button class="tab" id="tabOnline">Online 🌐</button></div>
     <div id="paneLocal">
     <label>Antal spillere</label>
@@ -174,6 +186,7 @@
       <option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
     </select>
     <div id="names"></div>
+    <label class="chk" id="contWrap"><input type="checkbox" id="contSeries" checked> Fortsæt serien (<span id="contN"></span> spil spillet)</label>
     <div class="row">
       <button class="cancel" id="setupCancel">Annuller</button>
       <button class="ok" id="setupOk">Start</button>
@@ -196,6 +209,7 @@
   <div class="box">
     <h2 style="text-align:center">Spil-kode</h2>
     <div class="code" id="lobbyCode">----</div>
+    <p id="lobbyVariant" style="text-align:center;color:var(--ink);font-weight:600;margin:0"></p>
     <p id="lobbyStatus" style="text-align:center"></p>
     <ul class="plist" id="lobbyPlayers"></ul>
     <div class="row">
@@ -211,6 +225,7 @@
     <h2>Online-spil</h2>
     <p id="omText"></p>
     <div class="stack">
+      <select id="omVariant"></select>
       <button class="ok" id="omAgain">Nyt spil med samme spillere</button>
       <button class="cancel" id="omShare">Del link til spillet</button>
       <button class="cancel" id="omKick">Fjern spiller</button>
@@ -234,29 +249,47 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const CATS = [
-  {id:'1', name:'1\'ere', up:true, f:d=>cnt(d)[1]*1},
-  {id:'2', name:'2\'ere', up:true, f:d=>cnt(d)[2]*2},
-  {id:'3', name:'3\'ere', up:true, f:d=>cnt(d)[3]*3},
-  {id:'4', name:'4\'ere', up:true, f:d=>cnt(d)[4]*4},
-  {id:'5', name:'5\'ere', up:true, f:d=>cnt(d)[5]*5},
-  {id:'6', name:'6\'ere', up:true, f:d=>cnt(d)[6]*6},
-  {id:'p1', name:'1 par', f:d=>{const p=pairs(d);return p.length?p[0]*2:0}},
-  {id:'p2', name:'2 par', f:d=>{const p=pairs(d);return p.length>=2?(p[0]+p[1])*2:0}},
-  {id:'p3', name:'3 par', f:d=>{const p=pairs(d);return p.length>=3?(p[0]+p[1]+p[2])*2:0}},
-  {id:'k3', name:'3 ens', f:d=>nKind(d,3)},
-  {id:'k4', name:'4 ens', f:d=>nKind(d,4)},
-  {id:'k5', name:'5 ens', f:d=>nKind(d,5)},
-  {id:'ss', name:'Lille straight', sub:'1-2-3-4-5', f:d=>has(d,[1,2,3,4,5])?15:0},
-  {id:'ls', name:'Stor straight', sub:'2-3-4-5-6', f:d=>has(d,[2,3,4,5,6])?20:0},
-  {id:'fs', name:'Royal straight', sub:'1-2-3-4-5-6', f:d=>has(d,[1,2,3,4,5,6])?21:0},
-  {id:'hu', name:'Hus', sub:'3 + 2 ens', f:d=>combo(d,3,2)},
-  {id:'vi', name:'Villa', sub:'3 + 3 ens', f:d=>combo(d,3,3)},
-  {id:'ta', name:'Tårn', sub:'4 + 2 ens', f:d=>combo(d,4,2)},
-  {id:'ch', name:'Chance', f:d=>d.reduce((a,b)=>a+b,0)},
-  {id:'my', name:'Maxi Yatzy', sub:'6 ens = 100', f:d=>{const c=cnt(d);return [1,2,3,4,5,6].some(v=>c[v]===6)?100:0}},
-];
-const BONUS_LIMIT=84, BONUS=50;
+const CAT={
+  '1':{name:"1'ere",up:true,f:d=>cnt(d)[1]*1},
+  '2':{name:"2'ere",up:true,f:d=>cnt(d)[2]*2},
+  '3':{name:"3'ere",up:true,f:d=>cnt(d)[3]*3},
+  '4':{name:"4'ere",up:true,f:d=>cnt(d)[4]*4},
+  '5':{name:"5'ere",up:true,f:d=>cnt(d)[5]*5},
+  '6':{name:"6'ere",up:true,f:d=>cnt(d)[6]*6},
+  p1:{name:'1 par',f:d=>{const p=pairs(d);return p.length?p[0]*2:0}},
+  p2:{name:'2 par',f:d=>{const p=pairs(d);return p.length>=2?(p[0]+p[1])*2:0}},
+  p3:{name:'3 par',f:d=>{const p=pairs(d);return p.length>=3?(p[0]+p[1]+p[2])*2:0}},
+  k3:{name:'3 ens',f:d=>nKind(d,3)},
+  k4:{name:'4 ens',f:d=>nKind(d,4)},
+  k5:{name:'5 ens',f:d=>nKind(d,5)},
+  ss:{name:'Lille straight',sub:'1-2-3-4-5',f:d=>has(d,[1,2,3,4,5])?15:0},
+  ls:{name:'Stor straight',sub:'2-3-4-5-6',f:d=>has(d,[2,3,4,5,6])?20:0},
+  fs:{name:'Royal straight',sub:'1-2-3-4-5-6',f:d=>has(d,[1,2,3,4,5,6])?21:0},
+  hu:{name:'Hus',sub:'3 + 2 ens',f:d=>combo(d,3,2)},
+  vi:{name:'Villa',sub:'3 + 3 ens',f:d=>combo(d,3,3)},
+  ta:{name:'Tårn',sub:'4 + 2 ens',f:d=>combo(d,4,2)},
+  ch:{name:'Chance',f:d=>d.reduce((a,b)=>a+b,0)},
+  yz:{name:'Yatzy',sub:'5 ens = 50',f:d=>{const c=cnt(d);return [1,2,3,4,5,6].some(v=>c[v]>=5)?50:0}},
+  sy:{name:'Super Yatzy',sub:'6 ens = 50 + øjnene',f:d=>{const c=cnt(d);return [1,2,3,4,5,6].some(v=>c[v]===6)?50+d.reduce((a,b)=>a+b,0):0}},
+  my:{name:'Maxi Yatzy',sub:'6 ens = 100',f:d=>{const c=cnt(d);return [1,2,3,4,5,6].some(v=>c[v]===6)?100:0}},
+};
+const UP=['1','2','3','4','5','6'];
+const VARIANTS={
+  yatzy:{name:'Yatzy',short:'5 terninger',dice:5,bonusAt:63,save:false,
+    ids:[...UP,'p1','p2','k3','k4','ss','ls','hu','ch','yz']},
+  super:{name:'Super Yatzy',short:'6 terninger',dice:6,bonusAt:84,save:false,
+    ids:[...UP,'p1','p2','p3','k3','k4','vi','ss','ls','fs','hu','ch','sy'],
+    rename:{vi:{name:'2 × 3 ens',sub:'to gange tre ens'},fs:{name:'Royal'}}},
+  maxi:{name:'Maxi Yatzy',short:'6 terninger + gemte slag',dice:6,bonusAt:84,save:true,
+    ids:[...UP,'p1','p2','p3','k3','k4','k5','ss','ls','fs','hu','vi','ta','ch','my']},
+};
+for(const k in VARIANTS){const v=VARIANTS[k];v.cats=v.ids.map(id=>Object.assign({id},CAT[id],(v.rename||{})[id]||{}))}
+function V(){return VARIANTS[(S&&S.v)||'maxi']||VARIANTS.maxi}
+function cats(){return V().cats}
+const BONUS=50;
+let selVariant='maxi';
+try{selVariant=localStorage.getItem('maxiyatzy_variant')||'maxi'}catch(e){}
+if(!VARIANTS[selVariant])selVariant='maxi';
 
 function cnt(d){const c=[0,0,0,0,0,0,0];d.forEach(v=>c[v]++);return c}
 function pairs(d){const c=cnt(d),r=[];for(let v=6;v>=1;v--){if(c[v]>=2)r.push(v)}return r}
@@ -269,9 +302,11 @@ function combo(d,a,b){const c=cnt(d);let best=0;
 const PIPS={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
 
 let S; // state
-function freshState(names){
-  return {players:names.map(n=>typeof n==='string'?{name:n,scores:{},saved:0}:{name:n.name,dev:n.dev,scores:{},saved:0}),cur:0,
-    dice:[0,0,0,0,0,0],held:[false,false,false,false,false,false],rollsLeft:3,rolled:false};
+function freshState(names,v){
+  v=VARIANTS[v]?v:'maxi';const n=VARIANTS[v].dice;
+  return {v,gid:Math.random().toString(36).slice(2,8),
+    players:names.map(x=>typeof x==='string'?{name:x,scores:{},saved:0}:{name:x.name,dev:x.dev,scores:{},saved:0}),cur:0,
+    dice:Array(n).fill(0),held:Array(n).fill(false),rollsLeft:3,rolled:false};
 }
 function persist(){try{localStorage.setItem('maxiyatzy',JSON.stringify(S))}catch(e){}}
 // lokal ændring: gem og send til de andre telefoner hvis vi spiller online
@@ -380,7 +415,8 @@ function buildDie(){
 }
 function renderDice(){
   const el=$('dice');
-  if(el.children.length!==6){el.innerHTML='';for(let i=0;i<6;i++)el.appendChild(buildDie())}
+  const nd=S.dice.length;
+  if(el.children.length!==nd){el.innerHTML='';for(let i=0;i<nd;i++)el.appendChild(buildDie())}
   syncRot();
   [...el.children].forEach((dw,i)=>{
     dw.className='dw'+(S.held[i]?' held':'')+(S.dice[i]?'':' blank');
@@ -410,11 +446,11 @@ function renderControls(){
 
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
-function upperSum(p){return CATS.filter(c=>c.up).reduce((a,c)=>a+(p.scores[c.id]||0),0)}
-function bonusDiff(p){return CATS.filter(c=>c.up&&(c.id in p.scores)).reduce((a,c)=>a+p.scores[c.id]-4*(+c.id),0)}
-function bonus(p){return upperSum(p)>=BONUS_LIMIT?BONUS:0}
-function total(p){return CATS.reduce((a,c)=>a+(p.scores[c.id]||0),0)+bonus(p)}
-function filled(p){return CATS.every(c=>c.id in p.scores)}
+function upperSum(p){return cats().filter(c=>c.up).reduce((a,c)=>a+(p.scores[c.id]||0),0)}
+function bonusDiff(p){return cats().filter(c=>c.up&&(c.id in p.scores)).reduce((a,c)=>a+p.scores[c.id]-(V().bonusAt/21)*(+c.id),0)}
+function bonus(p){return upperSum(p)>=V().bonusAt?BONUS:0}
+function total(p){return cats().reduce((a,c)=>a+(p.scores[c.id]||0),0)+bonus(p)}
+function filled(p){return cats().every(c=>c.id in p.scores)}
 function gameOver(){return S.players.every(filled)}
 
 function renderSheet(){
@@ -435,18 +471,18 @@ function renderSheet(){
     });
     return r+'</tr>';
   };
-  CATS.filter(c=>c.up).forEach(c=>h+=row(c));
+  cats().filter(c=>c.up).forEach(c=>h+=row(c));
   h+='<tr class="sum"><td>Sum</td>'+S.players.map(p=>`<td>${upperSum(p)}</td>`).join('')+'</tr>';
-  h+='<tr class="sum"><td>Plus/minus <small style="font-weight:400;color:var(--muted)">(4 af hver)</small></td>'+S.players.map(p=>{
-    const any=CATS.some(c=>c.up&&(c.id in p.scores));
+  h+=`<tr class="sum"><td>Plus/minus <small style="font-weight:400;color:var(--muted)">(${V().bonusAt/21} af hver)</small></td>`+S.players.map(p=>{
+    const any=cats().some(c=>c.up&&(c.id in p.scores));
     if(!any)return '<td></td>';
     if(bonus(p))return '<td style="color:#7be08f">✓</td>';
     const d=bonusDiff(p);
     return `<td style="color:${d>0?'#7be08f':d<0?'#ff8f8f':'var(--ink)'}">${d>0?'+':''}${d}</td>`;
   }).join('')+'</tr>';
-  h+=`<tr class="sum"><td>Bonus <small style="font-weight:400;color:var(--muted)">(${BONUS_LIMIT}+)</small></td>`+
+  h+=`<tr class="sum"><td>Bonus <small style="font-weight:400;color:var(--muted)">(${V().bonusAt}+)</small></td>`+
      S.players.map(p=>`<td>${bonus(p)||''}</td>`).join('')+'</tr>';
-  CATS.filter(c=>!c.up).forEach(c=>h+=row(c));
+  cats().filter(c=>!c.up).forEach(c=>h+=row(c));
   h+='<tr class="total"><td>Total</td>'+S.players.map(p=>`<td>${total(p)}</td>`).join('')+'</tr>';
   t.innerHTML=h+'</tbody>';
   t.querySelectorAll('td.open').forEach(td=>td.onclick=()=>pick(td.dataset.cat));
@@ -456,7 +492,8 @@ function renderAll(){
   renderNet();
   if(S&&S.online&&S.phase!=='play'){renderLobby();return}
   $('lobby').classList.remove('show');
-  renderDice();renderControls();renderSheet();
+  $('title').textContent='🎲 '+V().name;
+  renderDice();renderControls();renderSheet();renderSeries();
 }
 
 function roll(){
@@ -464,7 +501,7 @@ function roll(){
   if(S.rollsLeft>0)S.rollsLeft--;else S.players[S.cur].saved--;
   const idx=[];
   const final=S.dice.map((v,i)=>{if(S.held[i]&&S.rolled)return v;idx.push(i);return 1+Math.floor(Math.random()*6)});
-  if(!S.rolled)S.held=[false,false,false,false,false,false];
+  if(!S.rolled)S.held=S.dice.map(()=>false);
   S.dice=final;S.rolled=true;
   S.lastRoll={n:((S.lastRoll&&S.lastRoll.n)||0)+1,idx,by:DEV};
   save(); // gem og send resultatet med det samme
@@ -503,14 +540,15 @@ function animateRoll(idx,final,local){
 
 function pick(id){
   if(rolling||!myTurn())return;
-  const c=CATS.find(x=>x.id===id);const v=c.f(S.dice);
+  const c=cats().find(x=>x.id===id);const v=c.f(S.dice);
   const doIt=()=>{
     const p=S.players[S.cur];
     p.scores[id]=v;scoreSound(v>0);
     S.lastScore={n:((S.lastScore&&S.lastScore.n)||0)+1,by:DEV,p:S.cur,id,v};
-    p.saved+=S.rollsLeft; // ubrugte slag gemmes
-    const gained=S.rollsLeft;
+    const gained=V().save?S.rollsLeft:0;
+    p.saved+=gained; // ubrugte slag gemmes (kun Maxi Yatzy)
     nextTurn();
+    if(gameOver())recordGame();
     save();renderAll();
     if(gameOver())showWinner();
     else if(gained>0)toast(`${gained} slag gemt til senere`);
@@ -522,14 +560,14 @@ function pick(id){
 function nextTurn(){
   const n=S.players.length;
   for(let k=1;k<=n;k++){const j=(S.cur+k)%n;if(!filled(S.players[j])){S.cur=j;break}}
-  S.dice=[0,0,0,0,0,0];S.held=[false,false,false,false,false,false];S.rollsLeft=3;S.rolled=false;
+  S.dice=S.dice.map(()=>0);S.held=S.dice.map(()=>false);S.rollsLeft=3;S.rolled=false;
 }
 
 function showWinner(){
   const sorted=[...S.players].sort((a,b)=>total(b)-total(a));
-  const txt=S.players.length>1
+  const txt=(S.players.length>1
     ?sorted.map((p,i)=>`${i+1}. ${esc(p.name)}: ${total(p)}`).join('<br>')
-    :`Din score: ${total(S.players[0])}`;
+    :`Din score: ${total(S.players[0])}`)+seriesLine();
   if(S.online){
     const host=S.online.host===DEV;
     ask(`🏆 ${esc(sorted[0].name)} vinder!`,txt,host?playAgain:()=>{},host?'Spil igen':'OK');
@@ -560,6 +598,10 @@ function openSetup(){
   if(S)[...$('names').querySelectorAll('input')].forEach((inp,i)=>{if(S.players[i])inp.value=S.players[i].name});
   $('setupCancel').style.display=S?'':'none';
   $('setupCancel2').style.display=S?'':'none';
+  if(S&&S.v&&!S.online)selVariant=S.v;
+  renderVariantTabs();
+  const ng=S&&!S.online&&S.series?S.series.games.length:0;
+  $('contWrap').style.display=ng?'':'none';$('contN').textContent=ng;$('contSeries').checked=true;
   try{$('myName').value=localStorage.getItem('maxiyatzy_name')||''}catch(e){}
   $('setup').classList.add('show');
 }
@@ -567,7 +609,10 @@ $('nPlayers').onchange=renderNameInputs;
 $('setupOk').onclick=()=>{
   const names=[...$('names').querySelectorAll('input')].map((i,k)=>i.value.trim()||('Spiller '+(k+1)));
   if(net.client)disconnect();
-  S=freshState(names);save();$('setup').classList.remove('show');renderAll();
+  const prev=S;
+  S=freshState(names,selVariant);
+  if(prev&&!prev.online&&prev.series&&$('contSeries').checked)S.series=prev.series;
+  save();$('setup').classList.remove('show');renderAll();
 };
 $('setupCancel').onclick=()=>$('setup').classList.remove('show');
 $('setupCancel2').onclick=()=>$('setup').classList.remove('show');
@@ -728,6 +773,59 @@ if('serviceWorker' in navigator&&location.protocol==='https:'&&location.hostname
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
 
+/* ---------- Valg af spil ---------- */
+function renderVariantTabs(){
+  $('variantTabs').innerHTML=Object.entries(VARIANTS).map(([k,v])=>
+    `<button class="tab ${k===selVariant?'on':''}" data-v="${k}">${v.name}<small>${v.short}</small></button>`).join('');
+  $('variantTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    selVariant=b.dataset.v;try{localStorage.setItem('maxiyatzy_variant',selVariant)}catch(e){}
+    renderVariantTabs();
+  });
+}
+
+/* ---------- Serie: gem resultater når man spiller flere spil mod hinanden ---------- */
+function recordGame(){
+  if(!S.series)S.series={games:[]};
+  if(S.series.games.some(g=>g.gid===S.gid))return;
+  const sc={};S.players.forEach(p=>sc[p.name]=total(p));
+  S.series.games.push({gid:S.gid,at:Date.now(),v:S.v,sc});
+}
+function standings(series){
+  const t={};
+  (series&&series.games||[]).forEach(g=>{
+    const names=Object.keys(g.sc),best=Math.max(...names.map(n=>g.sc[n]));
+    names.forEach(n=>{
+      const r=t[n]||(t[n]={name:n,wins:0,games:0,points:0,best:0});
+      r.games++;r.points+=g.sc[n];r.best=Math.max(r.best,g.sc[n]);
+      if(names.length>1&&g.sc[n]===best)r.wins++;
+    });
+  });
+  return Object.values(t).sort((a,b)=>b.wins-a.wins||b.points-a.points);
+}
+function seriesLine(){
+  const st=standings(S.series);
+  if(!st.length||!(S.series.games.length>1)&&S.players.length<2)return '';
+  return `<br><br><b>Serien efter ${S.series.games.length} spil:</b><br>`+
+    st.map(r=>`${esc(r.name)}: ${r.wins} ${r.wins===1?'sejr':'sejre'}`).join('<br>');
+}
+function renderSeries(){
+  const el=$('seriesCard');
+  const games=S&&S.series&&S.series.games||[];
+  if(!games.length){el.style.display='none';return}
+  el.style.display='';
+  const st=standings(S.series);
+  let h=`<div class="shead">🏆 Serie · ${games.length} ${games.length===1?'spil':'spil'}</div>
+    <table><thead><tr><th>Spiller</th><th>Sejre</th><th>Point i alt</th><th>Snit</th><th>Bedste</th></tr></thead><tbody>`;
+  st.forEach((r,i)=>h+=`<tr><td>${i===0&&r.wins?'👑 ':''}${esc(r.name)}</td><td><b>${r.wins}</b></td><td>${r.points}</td><td>${Math.round(r.points/r.games)}</td><td>${r.best}</td></tr>`);
+  h+='</tbody></table><div class="glist">';
+  games.slice().reverse().slice(0,10).forEach((g,i)=>{
+    const names=Object.keys(g.sc),best=Math.max(...names.map(n=>g.sc[n]));
+    h+=`<div><span>Spil ${games.length-i} · ${(VARIANTS[g.v]||VARIANTS.maxi).name}</span> `+
+      names.map(n=>g.sc[n]===best&&names.length>1?`<b>${esc(n)} ${g.sc[n]}</b>`:`${esc(n)} ${g.sc[n]}`).join(' · ')+'</div>';
+  });
+  el.innerHTML=h+'</div>';
+}
+
 /* ---------- Online multiplayer (MQTT) ---------- */
 let DEV;
 try{DEV=localStorage.getItem('maxiyatzy_dev')}catch(e){}
@@ -825,7 +923,7 @@ function applyRemote(ns){
   if(shakeSource==='remote'&&S.lastRoll&&S.lastRoll.n!==prevRoll)stopShake();
   const newGame=prev.gid!==S.gid;
   if(!newGame&&S.lastScore&&S.lastScore.n!==prevScore&&S.lastScore.by!==DEV){
-    const c=CATS.find(x=>x.id===S.lastScore.id),who=S.players[S.lastScore.p];
+    const c=cats().find(x=>x.id===S.lastScore.id),who=S.players[S.lastScore.p];
     scoreSound(S.lastScore.v>0);
     if(c&&who)toast(`${who.name}: ${c.name} – ${S.lastScore.v||'strøget'}`);
   }
@@ -850,6 +948,7 @@ function renderLobby(){
   $('setup').classList.remove('show');
   $('lobby').classList.add('show');
   $('lobbyCode').textContent=S.online.code;
+  $('lobbyVariant').textContent=S.v?'Spil: '+V().name+' – '+V().short:'';
   const host=isHost();
   $('lobbyPlayers').innerHTML=S.players.map(p=>`<li>${esc(p.name)} <small>${p.dev===S.online.host?'· vært':''}${p.dev===DEV?' · dig':''}</small></li>`).join('');
   $('startBtn').style.display=host?'':'none';
@@ -871,7 +970,7 @@ $('hostBtn').onclick=()=>{
   const n=readName();if(!n)return;
   audio();
   const code=genCode();
-  S={online:{code,host:DEV},phase:'lobby',players:[{name:n,dev:DEV,scores:{},saved:0}],seq:0};
+  S={v:selVariant,online:{code,host:DEV},phase:'lobby',players:[{name:n,dev:DEV,scores:{},saved:0}],seq:0};
   persist();renderAll();
   connect(code,()=>{save();renderAll()});
 };
@@ -902,8 +1001,9 @@ $('startBtn').onclick=()=>{
   if(S.players.length<2){ask('Kun dig?','Der er ingen andre med endnu. Vil du starte alligevel?',startOnline,'Start');return}
   startOnline();
 };
-function startOnline(){
-  const ns=freshState(S.players);
+function startOnline(v){
+  const ns=freshState(S.players,v||S.v);
+  ns.series=S.series;
   ns.online=S.online;ns.phase='play';ns.seq=S.seq;ns.gid=Math.random().toString(36).slice(2,8);
   S=ns;save();renderAll();toast(myTurn()?'Din tur! 🎲':'Spillet er startet');
 }
@@ -931,6 +1031,8 @@ function openOnlineMenu(){
   const host=isHost(),cur=S.players[S.cur];
   $('omText').innerHTML=`Kode <b style="color:var(--accent);letter-spacing:2px">${S.online.code}</b> · ${S.players.length} spillere`;
   $('omAgain').style.display=host?'':'none';
+  $('omVariant').style.display=host?'':'none';
+  $('omVariant').innerHTML=Object.entries(VARIANTS).map(([k,v])=>`<option value="${k}" ${k===S.v?'selected':''}>${v.name} (${v.short})</option>`).join('');
   $('omKick').style.display=host&&cur&&cur.dev!==DEV&&!gameOver()?'':'none';
   $('omKick').textContent=cur?`Fjern ${cur.name} (har tur)`:'';
   $('onlineMenu').classList.add('show');
@@ -938,7 +1040,8 @@ function openOnlineMenu(){
 const closeOM=()=>$('onlineMenu').classList.remove('show');
 $('omClose').onclick=closeOM;
 $('omShare').onclick=()=>{closeOM();shareGame()};
-$('omAgain').onclick=()=>{closeOM();ask('Nyt spil?','Start et nyt spil med de samme spillere? Det nuværende spil slettes.',startOnline,'Nyt spil')};
+$('omAgain').onclick=()=>{const v=$('omVariant').value;closeOM();
+  ask('Nyt spil?',`Start et nyt spil ${VARIANTS[v].name} med de samme spillere?`+(gameOver()?'':' Det nuværende spil slettes.'),()=>startOnline(v),'Nyt spil')};
 $('omLeave').onclick=()=>{closeOM();ask('Forlad online-spil?','Du forlader spillet på denne telefon.',leaveOnline,'Forlad')};
 $('omKick').onclick=()=>{
   closeOM();const cur=S.players[S.cur];
@@ -946,7 +1049,7 @@ $('omKick').onclick=()=>{
     S.players.splice(S.cur,1);
     if(S.cur>=S.players.length)S.cur=0;
     if(filled(S.players[S.cur])){S.cur=(S.cur+S.players.length-1)%S.players.length;nextTurn()}
-    S.dice=[0,0,0,0,0,0];S.held=[false,false,false,false,false,false];S.rollsLeft=3;S.rolled=false;
+    S.dice=S.dice.map(()=>0);S.held=S.dice.map(()=>false);S.rollsLeft=3;S.rolled=false;
     save();renderAll();
   },'Fjern');
 };
