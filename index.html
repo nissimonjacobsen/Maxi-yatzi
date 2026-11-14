@@ -124,6 +124,19 @@
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;
     color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none}
   .toast.show{opacity:1}
+  .tabs{display:flex;gap:6px;background:#0b2f23;padding:4px;border-radius:12px;margin-bottom:8px}
+  .tab{flex:1;padding:9px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:14px;font-weight:600}
+  .tab.on{background:var(--accent);color:#2a1e00}
+  .code{font-size:44px;font-weight:800;letter-spacing:10px;text-align:center;color:var(--accent);margin:4px 0 6px;font-family:ui-monospace,Menlo,monospace}
+  .plist{list-style:none;padding:0;margin:6px 0 0}
+  .plist li{padding:9px 10px;border-radius:10px;background:#ffffff10;margin-bottom:6px;font-size:15px}
+  .plist li small{color:var(--muted)}
+  .netbar{display:none;font-size:13px;color:var(--muted);text-align:center;margin:-2px 0 8px}
+  .netbar.show{display:block}
+  .netbar b{color:var(--accent);letter-spacing:2px}
+  .or{text-align:center;color:var(--muted);font-size:13px;margin:16px 0 4px}
+  #joinCode{text-transform:uppercase;text-align:center;letter-spacing:6px;font-size:22px;font-weight:700}
+  .stack button{display:block;width:100%;margin-top:8px;padding:12px;border-radius:10px;border:0;font-size:15px;font-weight:600}
 </style>
 </head>
 <body>
@@ -136,6 +149,7 @@
       <button class="small-btn" id="newBtn">Nyt spil</button>
     </div>
   </header>
+  <div class="netbar" id="netbar"></div>
 
   <div class="table">
     <div class="turn" id="turn"></div>
@@ -153,6 +167,8 @@
 <div class="modal" id="setup">
   <div class="box">
     <h2>Nyt spil</h2>
+    <div class="tabs"><button class="tab on" id="tabLocal">Denne telefon</button><button class="tab" id="tabOnline">Online 🌐</button></div>
+    <div id="paneLocal">
     <label>Antal spillere</label>
     <select id="nPlayers">
       <option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
@@ -161,6 +177,45 @@
     <div class="row">
       <button class="cancel" id="setupCancel">Annuller</button>
       <button class="ok" id="setupOk">Start</button>
+    </div>
+    </div>
+    <div id="paneOnline" style="display:none">
+      <p>Spil sammen på flere telefoner. Hver spiller bruger sin egen telefon.</p>
+      <label>Dit navn</label>
+      <input id="myName" maxlength="14" autocomplete="off">
+      <div class="row"><button class="ok" id="hostBtn">Opret nyt spil</button></div>
+      <div class="or">– eller deltag med en kode –</div>
+      <input id="joinCode" maxlength="4" placeholder="KODE" autocomplete="off" autocapitalize="characters">
+      <div class="row"><button class="ok" id="joinBtn">Deltag</button></div>
+      <div class="row"><button class="cancel" id="setupCancel2">Annuller</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="lobby">
+  <div class="box">
+    <h2 style="text-align:center">Spil-kode</h2>
+    <div class="code" id="lobbyCode">----</div>
+    <p id="lobbyStatus" style="text-align:center"></p>
+    <ul class="plist" id="lobbyPlayers"></ul>
+    <div class="row">
+      <button class="cancel" id="shareBtn">Del link</button>
+      <button class="ok" id="startBtn">Start spil</button>
+    </div>
+    <div class="row"><button class="cancel" id="leaveBtn">Forlad</button></div>
+  </div>
+</div>
+
+<div class="modal" id="onlineMenu">
+  <div class="box">
+    <h2>Online-spil</h2>
+    <p id="omText"></p>
+    <div class="stack">
+      <button class="ok" id="omAgain">Nyt spil med samme spillere</button>
+      <button class="cancel" id="omShare">Del link til spillet</button>
+      <button class="cancel" id="omKick">Fjern spiller</button>
+      <button class="cancel" id="omLeave">Forlad online-spil</button>
+      <button class="cancel" id="omClose">Luk</button>
     </div>
   </div>
 </div>
@@ -215,10 +270,12 @@ const PIPS={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
 
 let S; // state
 function freshState(names){
-  return {players:names.map(n=>({name:n,scores:{},saved:0})),cur:0,
+  return {players:names.map(n=>typeof n==='string'?{name:n,scores:{},saved:0}:{name:n.name,dev:n.dev,scores:{},saved:0}),cur:0,
     dice:[0,0,0,0,0,0],held:[false,false,false,false,false,false],rollsLeft:3,rolled:false};
 }
-function save(){try{localStorage.setItem('maxiyatzy',JSON.stringify(S))}catch(e){}}
+function persist(){try{localStorage.setItem('maxiyatzy',JSON.stringify(S))}catch(e){}}
+// lokal ændring: gem og send til de andre telefoner hvis vi spiller online
+function save(){S.seq=(S.seq||0)+1;persist();if(S.online)publishState()}
 function load(){try{const s=JSON.parse(localStorage.getItem('maxiyatzy'));if(s&&s.players)return s}catch(e){}return null}
 
 const $=id=>document.getElementById(id);
@@ -329,7 +386,7 @@ function renderDice(){
     dw.className='dw'+(S.held[i]?' held':'')+(S.dice[i]?'':' blank');
     const cube=dw.querySelector('.cube');
     cube.style.transition='none';cube.style.transform=cubeT(rot[i]);
-    dw.onclick=()=>{if(!S.rolled||rolling)return;S.held[i]=!S.held[i];holdSound(S.held[i]);save();renderDice()};
+    dw.onclick=()=>{if(!S.rolled||rolling||!myTurn())return;S.held[i]=!S.held[i];holdSound(S.held[i]);save();renderDice()};
   });
 }
 
@@ -337,11 +394,13 @@ function totalRolls(){return S.rollsLeft+S.players[S.cur].saved}
 
 function renderControls(){
   const p=S.players[S.cur];
-  $('turn').innerHTML=S.players.length>1?`Tur: <b>${esc(p.name)}</b>`:'';
+  const mine=myTurn();
+  $('turn').innerHTML=S.online?(gameOver()?'':mine?'<b style="color:var(--accent)">Din tur!</b>':`Tur: <b>${esc(p.name)}</b>`)
+    :(S.players.length>1?`Tur: <b>${esc(p.name)}</b>`:'');
   const btn=$('rollBtn');
   const left=totalRolls();
-  btn.disabled=left<=0||gameOver()||rolling;
-  btn.textContent=gameOver()?'Spillet er slut':(S.rolled?`Slå igen (${left} tilbage)`:'Slå');
+  btn.disabled=left<=0||gameOver()||rolling||!mine;
+  btn.textContent=gameOver()?'Spillet er slut':!mine?`Venter på ${p.name}…`:(S.rolled?`Slå igen (${left} tilbage)`:'Slå');
   let txt=`Slag tilbage i denne tur: <b>${S.rollsLeft}</b>`;
   if(p.saved>0)txt+=` · Gemte slag: <b>${p.saved}</b>`;
   $('info').innerHTML=txt;
@@ -383,16 +442,26 @@ function renderSheet(){
   t.querySelectorAll('td.open').forEach(td=>td.onclick=()=>pick(td.dataset.cat));
 }
 
-function renderAll(){renderDice();renderControls();renderSheet()}
+function renderAll(){
+  renderNet();
+  if(S&&S.online&&S.phase!=='play'){renderLobby();return}
+  $('lobby').classList.remove('show');
+  renderDice();renderControls();renderSheet();
+}
 
 function roll(){
-  if(rolling||totalRolls()<=0||gameOver())return;
+  if(rolling||totalRolls()<=0||gameOver()||!myTurn())return;
   if(S.rollsLeft>0)S.rollsLeft--;else S.players[S.cur].saved--;
   const idx=[];
   const final=S.dice.map((v,i)=>{if(S.held[i]&&S.rolled)return v;idx.push(i);return 1+Math.floor(Math.random()*6)});
   if(!S.rolled)S.held=[false,false,false,false,false,false];
-  S.dice=final;S.rolled=true;save(); // gem resultatet med det samme
+  S.dice=final;S.rolled=true;
+  S.lastRoll={n:((S.lastRoll&&S.lastRoll.n)||0)+1,idx,by:DEV};
+  save(); // gem og send resultatet med det samme
+  animateRoll(idx,final,true);
+}
 
+function animateRoll(idx,final,local){
   rolling=true;renderControls();
   // skjul pointforslag mens terningerne ruller
   $('sheet').querySelectorAll('td.open .prev').forEach(p=>p.style.visibility='hidden');
@@ -416,18 +485,19 @@ function roll(){
     dw.classList.add('rolling');
     cube.style.transition='';
     cube.style.transform=cubeT(r);
-    [0.32,0.6,0.8].forEach((f,k)=>setTimeout(()=>buzz([28,16,9][k]),dur*f));
+    if(local)[0.32,0.6,0.8].forEach((f,k)=>setTimeout(()=>buzz([28,16,9][k]),dur*f));
   });
   rollSound(idx.length,longest/1000);
   setTimeout(()=>{rolling=false;renderAll()},longest+60);
 }
 
 function pick(id){
-  if(rolling)return;
+  if(rolling||!myTurn())return;
   const c=CATS.find(x=>x.id===id);const v=c.f(S.dice);
   const doIt=()=>{
     const p=S.players[S.cur];
     p.scores[id]=v;scoreSound(v>0);
+    S.lastScore={n:((S.lastScore&&S.lastScore.n)||0)+1,by:DEV,p:S.cur,id,v};
     p.saved+=S.rollsLeft; // ubrugte slag gemmes
     const gained=S.rollsLeft;
     nextTurn();
@@ -450,7 +520,10 @@ function showWinner(){
   const txt=S.players.length>1
     ?sorted.map((p,i)=>`${i+1}. ${esc(p.name)}: ${total(p)}`).join('<br>')
     :`Din score: ${total(S.players[0])}`;
-  ask(S.players.length>1?`🏆 ${esc(sorted[0].name)} vinder!`:'Spillet er slut',txt,openSetup,'Nyt spil');
+  if(S.online){
+    const host=S.online.host===DEV;
+    ask(`🏆 ${esc(sorted[0].name)} vinder!`,txt,host?playAgain:()=>{},host?'Spil igen':'OK');
+  }else ask(S.players.length>1?`🏆 ${esc(sorted[0].name)} vinder!`:'Spillet er slut',txt,openSetup,'Nyt spil');
 }
 
 let toastT;
@@ -476,15 +549,26 @@ function openSetup(){
   renderNameInputs();
   if(S)[...$('names').querySelectorAll('input')].forEach((inp,i)=>{if(S.players[i])inp.value=S.players[i].name});
   $('setupCancel').style.display=S?'':'none';
+  $('setupCancel2').style.display=S?'':'none';
+  try{$('myName').value=localStorage.getItem('maxiyatzy_name')||''}catch(e){}
   $('setup').classList.add('show');
 }
 $('nPlayers').onchange=renderNameInputs;
 $('setupOk').onclick=()=>{
   const names=[...$('names').querySelectorAll('input')].map((i,k)=>i.value.trim()||('Spiller '+(k+1)));
+  if(net.client)disconnect();
   S=freshState(names);save();$('setup').classList.remove('show');renderAll();
 };
 $('setupCancel').onclick=()=>$('setup').classList.remove('show');
+$('setupCancel2').onclick=()=>$('setup').classList.remove('show');
+function setTab(online){
+  $('tabLocal').classList.toggle('on',!online);$('tabOnline').classList.toggle('on',online);
+  $('paneLocal').style.display=online?'none':'';$('paneOnline').style.display=online?'':'none';
+}
+$('tabLocal').onclick=()=>setTab(false);
+$('tabOnline').onclick=()=>setTab(true);
 $('newBtn').onclick=()=>{
+  if(S&&S.online){openOnlineMenu();return}
   if(S&&!gameOver()&&Object.keys(S.players[0].scores).length)
     ask('Start nyt spil?','Det nuværende spil bliver slettet.',openSetup);
   else openSetup();
@@ -512,9 +596,11 @@ function cupClack(t,vol){
 
 /* ---------- Ryst (knap eller telefon) ---------- */
 let shakeLoop=null,pressT=0,shakeIntensity=0.6,shakeSource=null;
-function canRoll(){return !rolling&&totalRolls()>0&&!gameOver()&&!$('setup').classList.contains('show')}
+function canRoll(){return !!S&&(!S.online||S.phase==='play')&&!rolling&&myTurn()&&totalRolls()>0&&!gameOver()&&!$('setup').classList.contains('show')}
 function startShake(source){
-  if(shakeLoop||!canRoll())return;
+  if(shakeLoop)return;
+  if(source!=='remote'&&!canRoll())return;
+  if(source==='remote')shakeIntensity=0.6;
   shakeSource=source;
   $('rollBtn').classList.add('shaking');
   [...$('dice').children].forEach((dw,i)=>{if(!(S.held[i]&&S.rolled))dw.classList.add('shaking')});
@@ -523,14 +609,17 @@ function startShake(source){
     const ac=audio();if(!ac)return;
     const t=ac.currentTime;
     const n=Math.max(1,Math.round((0.5+shakeIntensity*2)*free/6*Math.random()*2));
-    if(Math.random()<0.55)buzz(Math.round(8+shakeIntensity*22));
+    if(shakeSource!=='remote'&&Math.random()<0.55)buzz(Math.round(8+shakeIntensity*22));
     for(let k=0;k<n;k++)cupClack(t+Math.random()*0.06,0.12+shakeIntensity*0.35*Math.random());
   };
   rattle();shakeLoop=setInterval(rattle,65);
+  if(source!=='remote')sendEv({t:'shake',on:true});
 }
 function stopShake(){
   if(!shakeLoop)return false;
+  const src=shakeSource;
   clearInterval(shakeLoop);shakeLoop=null;shakeSource=null;
+  if(src!=='remote')sendEv({t:'shake',on:false});
   $('rollBtn').classList.remove('shaking');
   [...$('dice').children].forEach(dw=>dw.classList.remove('shaking'));
   return true;
@@ -543,6 +632,7 @@ rb.addEventListener('pointerdown',e=>{
   pressT=setTimeout(()=>startShake('button'),180);
 });
 const release=()=>{clearTimeout(pressT);if(shakeSource==='button'&&stopShake())roll()};
+document.addEventListener('pointerdown',()=>audio(),{passive:true}); // lås lyd op ved første tryk
 rb.addEventListener('pointerup',release);
 rb.addEventListener('pointerleave',release);
 rb.addEventListener('pointercancel',()=>{clearTimeout(pressT);if(shakeSource==='button')stopShake()});
@@ -628,10 +718,244 @@ if('serviceWorker' in navigator&&location.protocol==='https:'&&location.hostname
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
 
+/* ---------- Online multiplayer (MQTT) ---------- */
+let DEV;
+try{DEV=localStorage.getItem('maxiyatzy_dev')}catch(e){}
+if(!DEV){DEV=Math.random().toString(36).slice(2,10)+Date.now().toString(36);try{localStorage.setItem('maxiyatzy_dev',DEV)}catch(e){}}
+const BROKER=new URLSearchParams(location.search).get('broker')||'wss://broker.hivemq.com:8884/mqtt';
+const TOPIC=c=>`maxiyatzy-nsj/v2/${c}/`;
+const net={client:null,code:null,connected:false,joinTimer:null,joinTimeout:null};
+
+function myTurn(){return !S||!S.online||!S.players[S.cur]||S.players[S.cur].dev===DEV}
+function isHost(){return !!(S&&S.online&&S.online.host===DEV)}
+function myName(){let n='';try{n=localStorage.getItem('maxiyatzy_name')||''}catch(e){}return n||'Spiller'}
+
+function loadMqtt(){
+  if(window.mqtt)return Promise.resolve();
+  const srcs=['https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js','https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js'];
+  return new Promise((res,rej)=>{
+    const tryOne=i=>{
+      if(i>=srcs.length)return rej(new Error('mqtt'));
+      const sc=document.createElement('script');sc.src=srcs[i];
+      sc.onload=()=>res();sc.onerror=()=>{sc.remove();tryOne(i+1)};
+      document.head.appendChild(sc);
+    };tryOne(0);
+  });
+}
+async function connect(code,onFirst){
+  disconnect();
+  net.code=code;renderNet();
+  try{await loadMqtt()}catch(e){toast('Kunne ikke hente online-modulet – tjek internet');return}
+  if(net.code!==code)return;
+  const c=mqtt.connect(BROKER,{clientId:'my_'+DEV.slice(0,10)+'_'+Math.random().toString(36).slice(2,6),
+    clean:true,reconnectPeriod:2000,connectTimeout:8000,keepalive:30});
+  net.client=c;let first=true;
+  c.on('connect',()=>{
+    net.connected=true;renderNet();
+    c.subscribe(TOPIC(code)+'#',{qos:1});
+    if(first){first=false;onFirst&&onFirst()}
+  });
+  c.on('close',()=>{net.connected=false;renderNet()});
+  c.on('offline',()=>{net.connected=false;renderNet()});
+  c.on('message',(topic,payload)=>{
+    if(c!==net.client)return;
+    let m;try{m=JSON.parse(payload.toString())}catch(e){return}
+    const kind=topic.slice(TOPIC(code).length);
+    if(kind==='state')applyRemote(m);
+    else if(kind==='join')onJoin(m);
+    else if(kind==='ev')onEv(m);
+  });
+}
+function disconnect(){
+  clearInterval(net.joinTimer);clearTimeout(net.joinTimeout);
+  if(net.client){try{net.client.end(true)}catch(e){}}
+  net.client=null;net.connected=false;net.code=null;
+}
+function publishState(){
+  if(net.client&&S&&S.online)net.client.publish(TOPIC(S.online.code)+'state',JSON.stringify(S),{qos:1,retain:true});
+}
+function sendEv(m){
+  if(net.client&&S&&S.online&&net.connected){m.dev=DEV;net.client.publish(TOPIC(S.online.code)+'ev',JSON.stringify(m),{qos:0})}
+}
+function onJoin(m){
+  if(!isHost()||!m||!m.dev)return;
+  const ex=S.players.find(p=>p.dev===m.dev);
+  if(ex){ // kendt spiller (fx genindlæst) – send blot tilstanden igen
+    if(S.phase==='lobby'&&m.name&&ex.name!==m.name){ex.name=m.name;save();renderAll()}else publishState();
+    return;
+  }
+  if(S.phase!=='lobby'){publishState();return}
+  if(S.players.length>=8)return;
+  S.players.push({name:String(m.name||'Spiller').slice(0,14),dev:m.dev,scores:{},saved:0});
+  save();renderAll();holdSound(true);
+}
+function onEv(m){
+  if(!m||m.dev===DEV||!S||S.phase!=='play')return;
+  if(m.t==='shake'){
+    if(m.on){if(!shakeLoop&&!rolling)startShake('remote')}
+    else if(shakeSource==='remote')stopShake();
+  }
+}
+function applyRemote(ns){
+  if(!ns||!ns.online||!S||!S.online||ns.online.code!==S.online.code)return;
+  if(S.phase!=='joining'&&(ns.seq||0)<=(S.seq||0))return;
+  const prev=S,wasOver=prev.phase==='play'&&prev.players.length&&gameOver();
+  const prevRoll=prev.lastRoll&&prev.lastRoll.n, prevScore=prev.lastScore&&prev.lastScore.n;
+  // kom vi med i spillet?
+  if(prev.phase==='joining'&&!ns.players.some(p=>p.dev===DEV)){
+    if(ns.phase!=='lobby'){setLobbyStatus('Spillet er allerede i gang – du kan ikke komme med.');return}
+    S.online.host=ns.online.host;S.players=ns.players;renderLobby();return;
+  }
+  if(prev.phase==='joining'){clearInterval(net.joinTimer);clearTimeout(net.joinTimeout)}
+  S=ns;persist();
+  if(S.phase==='play'&&!S.players.some(p=>p.dev===DEV)){
+    toast('Du er blevet fjernet fra spillet');leaveOnline();return;
+  }
+  if(S.phase!=='play'){if(!rolling)renderAll();return}
+  if(shakeSource==='remote'&&S.lastRoll&&S.lastRoll.n!==prevRoll)stopShake();
+  const newGame=prev.gid!==S.gid;
+  if(!newGame&&S.lastScore&&S.lastScore.n!==prevScore&&S.lastScore.by!==DEV){
+    const c=CATS.find(x=>x.id===S.lastScore.id),who=S.players[S.lastScore.p];
+    scoreSound(S.lastScore.v>0);
+    if(c&&who)toast(`${who.name}: ${c.name} – ${S.lastScore.v||'strøget'}`);
+  }
+  if(!newGame&&S.lastRoll&&S.lastRoll.n!==prevRoll&&S.lastRoll.by!==DEV&&!rolling&&prev.phase==='play'){
+    animateRoll(S.lastRoll.idx,S.dice,false);
+  }else if(!rolling)renderAll();
+  if(newGame&&prev.phase==='play'){$('confirm').classList.remove('show');toast('Nyt spil startet!')}
+  if(!wasOver&&gameOver())setTimeout(showWinner,rolling?1500:300);
+  else if(myTurn()&&!S.rolled&&prev.cur!==S.cur){toast('Din tur! 🎲');buzz([40,60,40])}
+}
+
+/* ----- lobby ----- */
+function genCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let c='';for(let i=0;i<4;i++)c+=a[Math.floor(Math.random()*a.length)];return c}
+function readName(){
+  const n=$('myName').value.trim();
+  if(!n){toast('Skriv dit navn først');$('myName').focus();return null}
+  try{localStorage.setItem('maxiyatzy_name',n)}catch(e){}
+  return n.slice(0,14);
+}
+function setLobbyStatus(t){$('lobbyStatus').innerHTML=t}
+function renderLobby(){
+  $('setup').classList.remove('show');
+  $('lobby').classList.add('show');
+  $('lobbyCode').textContent=S.online.code;
+  const host=isHost();
+  $('lobbyPlayers').innerHTML=S.players.map(p=>`<li>${esc(p.name)} <small>${p.dev===S.online.host?'· vært':''}${p.dev===DEV?' · dig':''}</small></li>`).join('');
+  $('startBtn').style.display=host?'':'none';
+  $('startBtn').disabled=!net.connected;
+  if(!net.connected)setLobbyStatus('Forbinder…');
+  else if(S.phase==='joining')setLobbyStatus('Leder efter spillet…');
+  else setLobbyStatus(host?'Bed de andre åbne spillet og skrive koden – eller tryk <b>Del link</b>. Tryk <b>Start spil</b>, når alle er med.':'Du er med! Venter på at værten starter spillet…');
+}
+function renderNet(){
+  const nb=$('netbar');
+  if(S&&S.online){
+    nb.classList.add('show');
+    const me=S.players&&S.players.find(p=>p.dev===DEV);
+    nb.innerHTML=`${net.connected?'🟢':'🟠 Forbinder…'} Online · kode <b>${S.online.code}</b>${me?' · du er '+esc(me.name):''}`;
+    if(S.phase!=='play'&&$('lobby').classList.contains('show'))renderLobby();
+  }else nb.classList.remove('show');
+}
+$('hostBtn').onclick=()=>{
+  const n=readName();if(!n)return;
+  audio();
+  const code=genCode();
+  S={online:{code,host:DEV},phase:'lobby',players:[{name:n,dev:DEV,scores:{},saved:0}],seq:0};
+  persist();renderAll();
+  connect(code,()=>{save();renderAll()});
+};
+$('joinBtn').onclick=()=>{
+  const n=readName();if(!n)return;
+  const code=$('joinCode').value.trim().toUpperCase();
+  if(!/^[A-Z0-9]{4}$/.test(code)){toast('Koden er 4 tegn');$('joinCode').focus();return}
+  audio();
+  if(S&&S.online&&S.online.code===code){renderAll();return}
+  S={online:{code,host:null},phase:'joining',players:[],seq:0};
+  persist();renderAll();
+  connect(code,()=>{
+    const send=()=>{if(net.client&&S&&S.online&&S.online.code===code)net.client.publish(TOPIC(code)+'join',JSON.stringify({dev:DEV,name:n}),{qos:1})};
+    send();clearInterval(net.joinTimer);
+    net.joinTimer=setInterval(()=>{
+      if(!S||!S.online||S.online.code!==code){clearInterval(net.joinTimer);return}
+      if(S.phase==='joining'||(S.phase==='lobby'&&!S.players.some(p=>p.dev===DEV)))send();else clearInterval(net.joinTimer);
+    },2000);
+    renderLobby();
+    net.joinTimeout=setTimeout(()=>{
+      if(S&&S.phase==='joining'&&!S.players.length)setLobbyStatus('Kunne ikke finde et spil med koden <b>'+code+'</b>. Tjek koden, og at værten har spillet åbent.');
+    },8000);
+  });
+};
+$('joinCode').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'')});
+$('startBtn').onclick=()=>{
+  if(!isHost())return;
+  if(S.players.length<2){ask('Kun dig?','Der er ingen andre med endnu. Vil du starte alligevel?',startOnline,'Start');return}
+  startOnline();
+};
+function startOnline(){
+  const ns=freshState(S.players);
+  ns.online=S.online;ns.phase='play';ns.seq=S.seq;ns.gid=Math.random().toString(36).slice(2,8);
+  S=ns;save();renderAll();toast(myTurn()?'Din tur! 🎲':'Spillet er startet');
+}
+function playAgain(){if(isHost())startOnline()}
+function leaveOnline(){
+  disconnect();S=null;try{localStorage.removeItem('maxiyatzy')}catch(e){}
+  $('lobby').classList.remove('show');$('onlineMenu').classList.remove('show');
+  renderNet();openSetup();setTab(true);
+}
+$('leaveBtn').onclick=()=>{
+  if(isHost()&&S.players.length>1)ask('Forlad spillet?','Du er vært. Hvis du går, kan spillet ikke startes.',leaveOnline,'Forlad');
+  else leaveOnline();
+};
+async function shareGame(){
+  const code=S.online.code,url=location.origin+location.pathname+'#'+code;
+  try{
+    if(navigator.share){await navigator.share({title:'Maxi Yatzy',text:`Spil Maxi Yatzy med mig! Kode: ${code}`,url});return}
+  }catch(e){if(e&&e.name==='AbortError')return}
+  try{await navigator.clipboard.writeText(url);toast('Link kopieret')}catch(e){toast('Kode: '+code)}
+}
+$('shareBtn').onclick=shareGame;
+
+/* ----- menu under online-spil ----- */
+function openOnlineMenu(){
+  const host=isHost(),cur=S.players[S.cur];
+  $('omText').innerHTML=`Kode <b style="color:var(--accent);letter-spacing:2px">${S.online.code}</b> · ${S.players.length} spillere`;
+  $('omAgain').style.display=host?'':'none';
+  $('omKick').style.display=host&&cur&&cur.dev!==DEV&&!gameOver()?'':'none';
+  $('omKick').textContent=cur?`Fjern ${cur.name} (har tur)`:'';
+  $('onlineMenu').classList.add('show');
+}
+const closeOM=()=>$('onlineMenu').classList.remove('show');
+$('omClose').onclick=closeOM;
+$('omShare').onclick=()=>{closeOM();shareGame()};
+$('omAgain').onclick=()=>{closeOM();ask('Nyt spil?','Start et nyt spil med de samme spillere? Det nuværende spil slettes.',startOnline,'Nyt spil')};
+$('omLeave').onclick=()=>{closeOM();ask('Forlad online-spil?','Du forlader spillet på denne telefon.',leaveOnline,'Forlad')};
+$('omKick').onclick=()=>{
+  closeOM();const cur=S.players[S.cur];
+  ask('Fjern spiller?',`Fjern ${esc(cur.name)} fra spillet? Brug det hvis telefonen er forsvundet.`,()=>{
+    S.players.splice(S.cur,1);
+    if(S.cur>=S.players.length)S.cur=0;
+    if(filled(S.players[S.cur])){S.cur=(S.cur+S.players.length-1)%S.players.length;nextTurn()}
+    S.dice=[0,0,0,0,0,0];S.held=[false,false,false,false,false,false];S.rollsLeft=3;S.rolled=false;
+    save();renderAll();
+  },'Fjern');
+};
+
 S=load();
-if(S)renderAll();else{S=null;openSetup();
-  // vis tomme terninger bag dialogen
-  S=freshState(['Spiller 1']);renderAll();S=null;}
+const hashCode=((location.hash.match(/^#([A-Za-z0-9]{4})$/)||[])[1]||'').toUpperCase();
+if(hashCode)try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
+if(hashCode&&!(S&&S.online&&S.online.code===hashCode)){
+  // inviteret via link til et spil vi ikke er med i
+  if(S&&S.online)S=null;
+  if(S)renderAll();else{S=freshState(['Spiller 1']);renderDice();renderSheet();S=null}
+  openSetup();setTab(true);$('joinCode').value=hashCode;
+}else if(S){
+  if(S.online)connect(S.online.code);
+  renderAll();
+}else{
+  S=freshState(['Spiller 1']);renderDice();renderSheet();S=null;
+  openSetup();
+}
 </script>
 </body>
 </html>
