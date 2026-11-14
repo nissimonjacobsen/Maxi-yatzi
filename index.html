@@ -49,6 +49,13 @@
   .turn b{color:var(--ink)}
   .dice{display:flex;flex-wrap:wrap;justify-content:center;max-width:300px;margin:0 auto}
   .dice{gap:26px 14px;perspective:900px}
+  #dice3d{display:none;height:250px;margin:-6px -10px 0;touch-action:manipulation}
+  #dice3d canvas{display:block;width:100%;height:100%}
+  body.d3 #dice{display:none}
+  body.d3 #dice3d{display:block}
+  body.d3 .controls{margin-top:6px!important}
+  @media (max-height:780px){#dice3d{height:215px}}
+  @media (max-height:700px){#dice3d{height:180px}}
   .dw{width:88px;height:92px;position:relative;cursor:pointer;perspective:420px;perspective-origin:50% 20%}
   .shadow{position:absolute;left:50%;bottom:4px;width:70px;height:16px;margin-left:-35px;border-radius:50%;
     background:radial-gradient(ellipse at center,#000b 0%,#0005 45%,#0000 72%);transition:all .2s}
@@ -181,6 +188,7 @@
   <div class="table">
     <div class="turn" id="turn"></div>
     <div class="dice" id="dice"></div>
+    <div id="dice3d"></div>
     <div class="controls">
       <button class="roll" id="rollBtn">Slå</button>
       <div class="info" id="info"></div>
@@ -433,7 +441,12 @@ function buildDie(){
     '</div>').join('')+'</div></div>';
   return dw;
 }
+function toggleHold(i){
+  if(!S||!S.rolled||rolling||!myTurn())return;
+  S.held[i]=!S.held[i];holdSound(S.held[i]);save();renderDice();
+}
 function renderDice(){
+  if(D3.ready){D3.sync();return}
   const el=$('dice');
   const nd=S.dice.length;
   if(el.children.length!==nd){el.innerHTML='';for(let i=0;i<nd;i++)el.appendChild(buildDie())}
@@ -442,7 +455,7 @@ function renderDice(){
     dw.className='dw'+(S.held[i]?' held':'')+(S.dice[i]?'':' blank');
     const cube=dw.querySelector('.cube');
     cube.style.transition='none';cube.style.transform=cubeT(rot[i]);
-    dw.onclick=()=>{if(!S.rolled||rolling||!myTurn())return;S.held[i]=!S.held[i];holdSound(S.held[i]);save();renderDice()};
+    dw.onclick=()=>toggleHold(i);
   });
 }
 
@@ -532,6 +545,7 @@ function animateRoll(idx,final,local){
   rolling=true;renderControls();
   // skjul pointforslag mens terningerne ruller
   $('sheet').querySelectorAll('td.open .prev').forEach(p=>p.style.visibility='hidden');
+  if(D3.ready){D3.roll(idx,final,local,()=>{rolling=false;renderAll()});return}
 
   const els=[...$('dice').children];
   let longest=0;
@@ -679,6 +693,7 @@ function startShake(source){
   shakeSource=source;
   $('rollBtn').classList.add('shaking');
   [...$('dice').children].forEach((dw,i)=>{if(!(S.held[i]&&S.rolled))dw.classList.add('shaking')});
+  if(D3.ready)D3.setShaking(true);
   const free=S.dice.filter((v,i)=>!(S.held[i]&&S.rolled)).length;
   const rattle=()=>{
     const ac=audio();if(!ac)return;
@@ -697,6 +712,7 @@ function stopShake(){
   if(src!=='remote')sendEv({t:'shake',on:false});
   $('rollBtn').classList.remove('shaking');
   [...$('dice').children].forEach(dw=>dw.classList.remove('shaking'));
+  if(D3.ready)D3.setShaking(false);
   return true;
 }
 const rb=$('rollBtn');
@@ -792,6 +808,317 @@ keepAwake();
 if('serviceWorker' in navigator&&location.protocol==='https:'&&location.hostname.endsWith('github.io')){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
+
+/* ---------- 3D-terninger med fysik (three.js + cannon-es) ---------- */
+// Falder tilbage til CSS-terningerne hvis 3D ikke kan indlæses.
+const D3={ready:false,busy:false,shaking:false};
+(function(){
+  const LIBS={
+    three:['https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js','https://unpkg.com/three@0.160.0/build/three.module.js'],
+    cannon:['https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js','https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js'],
+  };
+  async function imp(list){let err;for(const u of list){try{return await import(u)}catch(e){err=e}}throw err}
+  let T,C,renderer,scene,camera,area,floorMat,raycaster,ndc;
+  let dice=[];            // {group,mesh,mats,ring}
+  let bounds={x0:-3,x1:3,z0:-2,z1:2};
+  let anim=null;          // igangværende afspilning
+  let dirty=true;
+  const SIZE=1,HALF=.5,STEP=1/60;
+  // sider: BoxGeometry-rækkefølge +x,-x,+y,-y,+z,-z
+  const FACE_VAL=[3,4,1,6,2,5];
+  let NORM={};            // værdi -> lokal normal
+
+  function faceTexture(v){
+    const c=document.createElement('canvas');c.width=c.height=256;
+    const g=c.getContext('2d');
+    const grd=g.createRadialGradient(90,80,20,128,128,190);
+    grd.addColorStop(0,'#fffef9');grd.addColorStop(1,'#efe7d4');
+    g.fillStyle=grd;g.fillRect(0,0,256,256);
+    const P={1:[[.5,.5]],2:[[.27,.27],[.73,.73]],3:[[.27,.27],[.5,.5],[.73,.73]],4:[[.27,.27],[.73,.27],[.27,.73],[.73,.73]],
+      5:[[.27,.27],[.73,.27],[.5,.5],[.27,.73],[.73,.73]],6:[[.27,.25],[.73,.25],[.27,.5],[.73,.5],[.27,.75],[.73,.75]]}[v];
+    P.forEach(([x,y])=>{
+      const r=v===1?34:24,cx=x*256,cy=y*256;
+      const pg=g.createRadialGradient(cx-r*.3,cy-r*.3,r*.1,cx,cy,r);
+      if(v===1){pg.addColorStop(0,'#e8474a');pg.addColorStop(1,'#8d1013')}
+      else{pg.addColorStop(0,'#4a4a4a');pg.addColorStop(1,'#0c0c0c')}
+      g.fillStyle=pg;g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.fill();
+      g.strokeStyle='rgba(255,255,255,.55)';g.lineWidth=2;g.beginPath();g.arc(cx,cy+1,r,0.2,Math.PI-0.2);g.stroke();
+    });
+    const t=new T.CanvasTexture(c);t.colorSpace=T.SRGBColorSpace;t.anisotropy=4;return t;
+  }
+  function roundedBox(){
+    const geo=new T.BoxGeometry(SIZE,SIZE,SIZE,10,10,10);
+    const p=geo.attributes.position,v=new T.Vector3(),inner=new T.Vector3(),r=0.13,lim=HALF-r;
+    for(let i=0;i<p.count;i++){
+      v.fromBufferAttribute(p,i);
+      inner.set(Math.max(-lim,Math.min(lim,v.x)),Math.max(-lim,Math.min(lim,v.y)),Math.max(-lim,Math.min(lim,v.z)));
+      v.sub(inner).normalize().multiplyScalar(r).add(inner);
+      p.setXYZ(i,v.x,v.y,v.z);
+    }
+    geo.computeVertexNormals();return geo;
+  }
+  let GEO,TEX;
+  function makeDie(){
+    const mats=TEX.map(t=>new T.MeshStandardMaterial({map:t,roughness:.38,metalness:0,transparent:true}));
+    const mesh=new T.Mesh(GEO,mats);mesh.castShadow=true;
+    const group=new T.Group();group.add(mesh);scene.add(group);
+    const ring=new T.Mesh(new T.RingGeometry(.66,.8,40),new T.MeshBasicMaterial({color:0xf2b632,transparent:true,opacity:.95}));
+    ring.rotation.x=-Math.PI/2;ring.visible=false;scene.add(ring);
+    return {group,mesh,mats,ring,base:null};
+  }
+  function upQuatFor(v,yaw){ // drej så værdi v vender op
+    const q=new T.Quaternion().setFromUnitVectors(NORM[v],new T.Vector3(0,1,0));
+    return new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),yaw).multiply(q);
+  }
+  function layout(n){
+    const cols=3,rows=Math.ceil(n/cols),out=[];
+    for(let i=0;i<n;i++){
+      const r=Math.floor(i/cols),inRow=Math.min(cols,n-r*cols),c=i-r*cols;
+      out.push([(c-(inRow-1)/2)*1.7,(r-(rows-1)/2)*1.6]);
+    }
+    return out;
+  }
+  function computeBounds(){
+    const w=area.clientWidth,h=area.clientHeight;
+    renderer.setSize(w,h,false);
+    camera.aspect=w/h;camera.updateProjectionMatrix();
+    const pts=[[-1,1],[1,1],[-1,-1],[1,-1]].map(([x,y])=>{
+      ndc.set(x,y);raycaster.setFromCamera(ndc,camera);
+      const r=raycaster.ray,t=-(r.origin.y-HALF)/r.direction.y; // plan i terning-højde
+      return r.origin.clone().add(r.direction.clone().multiplyScalar(t));
+    });
+    const top=pts[0].z,bot=pts[2].z,xw=Math.min(pts[1].x,-pts[0].x,pts[3].x,-pts[2].x);
+    bounds={x0:-xw+.15,x1:xw-.15,z0:top+.15,z1:bot-.15};
+    dirty=true;
+  }
+  function fitCamera(){
+    // flyt kameraet så et bord på ca. 6,6 x 4,6 enheder altid kan ses
+    const w=area.clientWidth||300,h=area.clientHeight||200,asp=w/h;
+    const needW=7.6,needD=5.5,fov=34*Math.PI/180;
+    const distForD=needD/2/Math.tan(fov/2),distForW=needW/2/(Math.tan(fov/2)*asp);
+    const d=Math.max(distForD,distForW)*1.02;
+    camera.position.set(0,d*.93,d*.36);camera.lookAt(0,0,.15);
+  }
+  function onResize(){if(!D3.ready)return;fitCamera();computeBounds()}
+
+  function ensureDice(){
+    const n=S.dice.length;
+    while(dice.length<n)dice.push(makeDie());
+    while(dice.length>n){const d=dice.pop();scene.remove(d.group);scene.remove(d.ring)}
+    const L=layout(n);
+    dice.forEach((d,i)=>{if(!d.base){d.group.position.set(L[i][0],HALF,L[i][1]);d.base=true;
+      d.group.quaternion.copy(upQuatFor(S.dice[i]||((i%6)+1),(Math.random()-.5)*.5))}});
+  }
+  function valueUp(d){ // hvilken værdi vender op på terningen lige nu
+    const q=d.group.quaternion.clone().multiply(d.mesh.quaternion);
+    let best=0,bv=1;
+    for(let v=1;v<=6;v++){const y=NORM[v].clone().applyQuaternion(q).y;if(y>best){best=y;bv=v}}
+    return bv;
+  }
+  D3.sync=function(){
+    if(!D3.ready||!S)return;
+    ensureDice();
+    dice.forEach((d,i)=>{
+      const v=S.dice[i],held=!!(S.held[i]&&S.rolled);
+      if(!anim&&v&&valueUp(d)!==v){ // værdi ændret uden animation (genindlæst/fjern)
+        d.mesh.quaternion.identity();d.group.quaternion.copy(upQuatFor(v,(Math.random()-.5)*.5));d.group.position.y=HALF;
+      }
+      d.mats.forEach(m=>{m.opacity=v?1:.5;m.emissive.setHex(held?0x6b4a00:0x000000)});
+      d.ring.visible=held;d.ring.position.set(d.group.position.x,.02,d.group.position.z);
+    });
+    dirty=true;
+  };
+  D3.pick=function(e){
+    const r=renderer.domElement.getBoundingClientRect();
+    ndc.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
+    raycaster.setFromCamera(ndc,camera);
+    const hit=raycaster.intersectObjects(dice.map(d=>d.mesh),false)[0];
+    if(!hit)return -1;
+    return dice.findIndex(d=>d.mesh===hit.object);
+  };
+
+  /* --- simulering: kør fysikken i forvejen, find hvilken side der lander op, og drej siderne så det rigtige tal vender op --- */
+  function simulate(idx){
+    const world=new C.World({gravity:new C.Vec3(0,-60,0)});
+    world.allowSleep=true;
+    const mDie=new C.Material('die'),mFloor=new C.Material('floor');
+    world.addContactMaterial(new C.ContactMaterial(mFloor,mDie,{friction:.38,restitution:.3}));
+    world.addContactMaterial(new C.ContactMaterial(mDie,mDie,{friction:.25,restitution:.35}));
+    const floor=new C.Body({mass:0,material:mFloor,shape:new C.Plane()});
+    floor.quaternion.setFromEuler(-Math.PI/2,0,0);world.addBody(floor);
+    const b=bounds,H=8;
+    const wall=(x,z,hx,hz)=>{const w=new C.Body({mass:0,material:mFloor,shape:new C.Box(new C.Vec3(hx,H,hz))});w.position.set(x,H,z);world.addBody(w)};
+    wall(b.x0-.5,0,.5,20);wall(b.x1+.5,0,.5,20);wall(0,b.z0-.5,20,.5);wall(0,b.z1+.5,20,.5);
+    const roof=new C.Body({mass:0,material:mFloor,shape:new C.Plane()});roof.position.set(0,6,0);roof.quaternion.setFromEuler(Math.PI/2,0,0);world.addBody(roof);
+    const shape=new C.Box(new C.Vec3(HALF*.98,HALF*.98,HALF*.98));
+    const bodies=[],events=[];
+    const W=b.x1-b.x0,rollSet=new Set(idx);
+    let k=0;
+    dice.forEach((d,i)=>{
+      const rolls=rollSet.has(i);
+      const body=new C.Body({mass:rolls?1:0,material:mDie,shape,linearDamping:.22,angularDamping:.22,
+        sleepSpeedLimit:.2,sleepTimeLimit:.2});
+      const wq=d.group.quaternion.clone().multiply(d.mesh.quaternion);
+      if(rolls){
+        const slot=(k+.5)/idx.length;k++;
+        body.position.set(b.x0+W*(.1+.8*slot)+(Math.random()-.5)*.3,1.2+Math.random()*1.6,b.z1-.7-Math.random()*.3);
+        body.velocity.set((Math.random()-.5)*5,2+Math.random()*3,-(6+Math.random()*5));
+        body.angularVelocity.set((Math.random()-.5)*30,(Math.random()-.5)*30,(Math.random()-.5)*30);
+        body.quaternion.set(wq.x,wq.y,wq.z,wq.w);
+      }else{
+        body.position.set(d.group.position.x,d.group.position.y,d.group.position.z);
+        body.quaternion.set(wq.x,wq.y,wq.z,wq.w);
+      }
+      let lastHit=-9;
+      body.addEventListener('collide',e=>{
+        const s=steps,iv=Math.abs(e.contact.getImpactVelocityAlongNormal());
+        if(iv>1.6&&s-lastHit>3){lastHit=s;events.push({t:s*STEP,v:Math.min(1,iv/14)})}
+      });
+      world.addBody(body);bodies.push(body);
+    });
+    const frames=[];let steps=0;
+    while(steps<300){
+      world.step(STEP);steps++;
+      frames.push(idx.map(i=>{const p=bodies[i].position,q=bodies[i].quaternion;return [p.x,p.y,p.z,q.x,q.y,q.z,q.w]}));
+      if(steps>20&&idx.every(i=>bodies[i].sleepState===C.Body.SLEEPING))break;
+    }
+    // kontrol: alle rullede terninger skal ligge fladt på bordet
+    const good=[];
+    const tops=idx.map(i=>{
+      const q=new T.Quaternion(bodies[i].quaternion.x,bodies[i].quaternion.y,bodies[i].quaternion.z,bodies[i].quaternion.w);
+      let best=-2,bv=1;for(let v=1;v<=6;v++){const y=NORM[v].clone().applyQuaternion(q).y;if(y>best){best=y;bv=v}}
+      good.push(best>=.985&&bodies[i].position.y<=HALF+.08);
+      return bv;
+    });
+    const nGood=good.filter(Boolean).length;
+    return {frames,events,tops,good,nGood,ok:nGood===idx.length,held:dice.map((d,i)=>rollSet.has(i)?null:[d.group.position.x,d.group.position.z])};
+  }
+  // terninger der står skævt eller ligger oven på en anden glider på plads og lægger sig fladt
+  function settle(sim,idx){
+    if(sim.ok)return;
+    const last=sim.frames[sim.frames.length-1];
+    const occ=[];
+    sim.held.forEach(h=>{if(h)occ.push(h)});
+    idx.forEach((i,k)=>{if(sim.good[k])occ.push([last[k][0],last[k][2]])});
+    const b=bounds,up=new T.Vector3(0,1,0);
+    const targets=last.map((a,k)=>{
+      if(sim.good[k])return null;
+      const q=new T.Quaternion(a[3],a[4],a[5],a[6]);
+      const nw=NORM[sim.tops[k]].clone().applyQuaternion(q);
+      const qf=new T.Quaternion().setFromUnitVectors(nw,up).multiply(q);
+      // find nærmeste ledige plads
+      let px=a[0],pz=a[2],found=false;
+      for(let r=0;r<4&&!found;r+=.25){
+        for(let ang=0;ang<Math.PI*2&&!found;ang+=Math.PI/8){
+          const x=Math.max(b.x0+.6,Math.min(b.x1-.6,a[0]+Math.cos(ang)*r)),z=Math.max(b.z0+.6,Math.min(b.z1-.6,a[2]+Math.sin(ang)*r));
+          if(occ.every(o=>Math.hypot(o[0]-x,o[1]-z)>1.25)){px=x;pz=z;found=true}
+          if(r===0)break;
+        }
+      }
+      occ.push([px,pz]);
+      return {p:new T.Vector3(px,HALF,pz),q:qf,p0:new T.Vector3(a[0],a[1],a[2]),q0:q};
+    });
+    const N=14;
+    for(let j=1;j<=N;j++){
+      const t=j/N,e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+      sim.frames.push(last.map((a,k)=>{
+        const g=targets[k];if(!g)return a;
+        const p=g.p0.clone().lerp(g.p,e);p.y+=Math.sin(t*Math.PI)*.35;
+        const q=g.q0.clone().slerp(g.q,e);
+        return [p.x,p.y,p.z,q.x,q.y,q.z,q.w];
+      }));
+    }
+  }
+  D3.roll=function(idx,final,local,done){
+    ensureDice();
+    let sim=null;
+    for(let t=0;t<8;t++){const r=simulate(idx);if(!sim||r.nGood>sim.nGood||(r.nGood===sim.nGood&&r.frames.length<sim.frames.length))sim=r;if(r.ok)break}
+    settle(sim,idx);
+    // drej selve terningen i forhold til dens fysik-krop, så det ønskede tal ender øverst
+    idx.forEach((i,k)=>{
+      const d=dice[i];
+      const wq=d.group.quaternion.clone().multiply(d.mesh.quaternion);
+      d.group.quaternion.copy(wq);
+      d.mesh.quaternion.setFromUnitVectors(NORM[final[i]],NORM[sim.tops[k]]);
+      d.mats.forEach(m=>{m.opacity=1;m.emissive.setHex(0)});
+      d.ring.visible=false;
+    });
+    // lyd og vibration ved hvert stød
+    const ac=audio();
+    if(ac){const t0=ac.currentTime+.02;sim.events.forEach(e=>clack(t0+e.t,.12+.55*e.v))}
+    if(local){let last=-1;sim.events.forEach(e=>{if(e.v>.35&&e.t-last>.09){last=e.t;setTimeout(()=>buzz(Math.round(10+e.v*25)),e.t*1000)}})}
+    anim={idx,frames:sim.frames,start:performance.now(),done};
+    dirty=true;
+  };
+  D3.debug=()=>dice.map(d=>({up:valueUp(d),y:+d.group.position.y.toFixed(3),x:+d.group.position.x.toFixed(2),z:+d.group.position.z.toFixed(2)}));
+  D3.bounds=()=>bounds;
+  D3.simStats=(n)=>{const idx=dice.map((d,i)=>i);let ok=0,t=0,len=0;for(let k=0;k<n;k++){const a=performance.now();const r=simulate(idx);t+=performance.now()-a;len+=r.frames.length;if(r.ok)ok++}return {ok,n,ms:t/n,sec:len/n/60}};
+  D3.setShaking=function(on){D3.shaking=on;if(!on&&!anim)dice.forEach((d,i)=>{d.group.position.y=HALF});dirty=true};
+
+  function frame(now){
+    requestAnimationFrame(frame);
+    if(!D3.ready)return;
+    if(anim){
+      const f=Math.max(0,Math.min(anim.frames.length-1,Math.floor((performance.now()-anim.start)/1000/STEP)));
+      const fr=anim.frames[f];
+      anim.idx.forEach((i,k)=>{const a=fr[k],g=dice[i].group;g.position.set(a[0],a[1],a[2]);g.quaternion.set(a[3],a[4],a[5],a[6])});
+      if(f>=anim.frames.length-1){const cb=anim.done;anim=null;cb&&cb()}
+      dirty=true;
+    }else if(D3.shaking&&S){
+      const t=now/1000;
+      dice.forEach((d,i)=>{
+        if(S.held[i]&&S.rolled)return;
+        d.group.position.y=HALF+Math.abs(Math.sin(t*26+i*1.7))*.35;
+        d.group.rotateOnWorldAxis(new T.Vector3(Math.sin(i+t*3),0,Math.cos(i*2+t*2)).normalize(),(Math.random()-.5)*.25);
+      });
+      dirty=true;
+    }
+    if(dirty){renderer.render(scene,camera);dirty=false}
+  }
+
+  async function init(){
+    const area0=$('dice3d');
+    try{[T,C]=await Promise.all([imp(LIBS.three),imp(LIBS.cannon)])}catch(e){return}
+    try{
+      area=area0;
+      renderer=new T.WebGLRenderer({antialias:true,alpha:true});
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+      renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
+      renderer.outputColorSpace=T.SRGBColorSpace;
+      renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+      area.appendChild(renderer.domElement);
+      scene=new T.Scene();
+      camera=new T.PerspectiveCamera(34,1,.1,100);
+      raycaster=new T.Raycaster();ndc=new T.Vector2();
+      scene.add(new T.HemisphereLight(0xfff6e5,0x1d5a42,1.15));
+      const sun=new T.DirectionalLight(0xffffff,2.1);
+      sun.position.set(-3.5,9,4);sun.castShadow=true;
+      sun.shadow.mapSize.set(1024,1024);sun.shadow.radius=6;sun.shadow.bias=-.0008;
+      Object.assign(sun.shadow.camera,{left:-7,right:7,top:7,bottom:-7,near:1,far:25});
+      scene.add(sun);
+      floorMat=new T.ShadowMaterial({opacity:.42});
+      const floor=new T.Mesh(new T.PlaneGeometry(40,40),floorMat);
+      floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+      const fv=new T.Vector3();
+      [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].forEach((n,k)=>NORM[FACE_VAL[k]]=fv.clone().set(...n));
+      GEO=roundedBox();
+      TEX=FACE_VAL.map(v=>faceTexture(v));
+      D3.ready=true;
+      document.body.classList.add('d3');
+      fitCamera();computeBounds();
+      if(S){
+        // læg terningerne pænt hvis spillet allerede er i gang
+        ensureDice();D3.sync();
+      }
+      window.addEventListener('resize',onResize);
+      new ResizeObserver(onResize).observe(area);
+      renderer.domElement.addEventListener('click',e=>{const i=D3.pick(e);if(i>=0)toggleHold(i)});
+      requestAnimationFrame(frame);
+      if(S&&!rolling)renderAll();
+    }catch(e){D3.ready=false;document.body.classList.remove('d3');console.warn('3D fejlede',e)}
+  }
+  D3.init=init;
+})();
 
 /* ---------- Valg af spil ---------- */
 function renderVariantTabs(){
@@ -1114,6 +1441,7 @@ if(hashCode&&!(S&&S.online&&S.online.code===hashCode)){
   S=freshState(['Spiller 1']);renderDice();renderSheet();S=null;
   openSetup();
 }
+D3.init();
 </script>
 </body>
 </html>
