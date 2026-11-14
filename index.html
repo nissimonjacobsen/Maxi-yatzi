@@ -400,15 +400,18 @@ function renderControls(){
   const btn=$('rollBtn');
   const left=totalRolls();
   btn.disabled=left<=0||gameOver()||rolling||!mine;
-  btn.textContent=gameOver()?'Spillet er slut':!mine?`Venter på ${p.name}…`:(S.rolled?`Slå igen (${left} tilbage)`:'Slå');
-  let txt=`Slag tilbage i denne tur: <b>${S.rollsLeft}</b>`;
-  if(p.saved>0)txt+=` · Gemte slag: <b>${p.saved}</b>`;
+  btn.textContent=gameOver()?'Spillet er slut':!mine?`Venter på ${p.name}…`
+    :!S.rolled?'Slå':S.rollsLeft>0?`Slå igen (${S.rollsLeft} tilbage)`:`Brug gemt slag (${p.saved} tilbage)`;
+  const dots=[0,1,2].map(k=>`<span style="color:${k<S.rollsLeft?'var(--accent)':'#ffffff33'}">●</span>`).join('');
+  let txt=`Slag i denne tur: ${dots}`;
+  if(p.saved>0)txt+=` &nbsp;·&nbsp; Gemte slag: <b>${p.saved}</b>`;
   $('info').innerHTML=txt;
 }
 
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
 function upperSum(p){return CATS.filter(c=>c.up).reduce((a,c)=>a+(p.scores[c.id]||0),0)}
+function bonusDiff(p){return CATS.filter(c=>c.up&&(c.id in p.scores)).reduce((a,c)=>a+p.scores[c.id]-4*(+c.id),0)}
 function bonus(p){return upperSum(p)>=BONUS_LIMIT?BONUS:0}
 function total(p){return CATS.reduce((a,c)=>a+(p.scores[c.id]||0),0)+bonus(p)}
 function filled(p){return CATS.every(c=>c.id in p.scores)}
@@ -434,6 +437,13 @@ function renderSheet(){
   };
   CATS.filter(c=>c.up).forEach(c=>h+=row(c));
   h+='<tr class="sum"><td>Sum</td>'+S.players.map(p=>`<td>${upperSum(p)}</td>`).join('')+'</tr>';
+  h+='<tr class="sum"><td>Plus/minus <small style="font-weight:400;color:var(--muted)">(4 af hver)</small></td>'+S.players.map(p=>{
+    const any=CATS.some(c=>c.up&&(c.id in p.scores));
+    if(!any)return '<td></td>';
+    if(bonus(p))return '<td style="color:#7be08f">✓</td>';
+    const d=bonusDiff(p);
+    return `<td style="color:${d>0?'#7be08f':d<0?'#ff8f8f':'var(--ink)'}">${d>0?'+':''}${d}</td>`;
+  }).join('')+'</tr>';
   h+=`<tr class="sum"><td>Bonus <small style="font-weight:400;color:var(--muted)">(${BONUS_LIMIT}+)</small></td>`+
      S.players.map(p=>`<td>${bonus(p)||''}</td>`).join('')+'</tr>';
   CATS.filter(c=>!c.up).forEach(c=>h+=row(c));
