@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Maxi Yatzy – 6 terninger</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f3d2e">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Yatzy">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
     --bg:#0f3d2e; --felt:#14563f; --ink:#f4f1e8; --muted:#b9d3c6;
@@ -408,9 +416,9 @@ function roll(){
     dw.classList.add('rolling');
     cube.style.transition='';
     cube.style.transform=cubeT(r);
+    [0.32,0.6,0.8].forEach((f,k)=>setTimeout(()=>buzz([28,16,9][k]),dur*f));
   });
   rollSound(idx.length,longest/1000);
-  if(navigator.vibrate){try{navigator.vibrate([20,40,20])}catch(e){}}
   setTimeout(()=>{rolling=false;renderAll()},longest+60);
 }
 
@@ -515,6 +523,7 @@ function startShake(source){
     const ac=audio();if(!ac)return;
     const t=ac.currentTime;
     const n=Math.max(1,Math.round((0.5+shakeIntensity*2)*free/6*Math.random()*2));
+    if(Math.random()<0.55)buzz(Math.round(8+shakeIntensity*22));
     for(let k=0;k<n;k++)cupClack(t+Math.random()*0.06,0.12+shakeIntensity*0.35*Math.random());
   };
   rattle();shakeLoop=setInterval(rattle,65);
@@ -600,6 +609,24 @@ try{if(localStorage.getItem('maxiyatzy_motion')==='on'&&typeof DeviceMotionEvent
   window.addEventListener('devicemotion',onMotion);motionOn=true;renderShakeBtn();motionTimer=setInterval(motionTick,60);
 }}catch(e){}
 
+
+/* ---------- Vibration, skærm tændt, app ---------- */
+function buzz(ms){try{if(navigator.vibrate)navigator.vibrate(ms)}catch(e){}}
+let wakeLock=null;
+async function keepAwake(){
+  try{
+    if('wakeLock' in navigator&&!wakeLock&&document.visibilityState==='visible'){
+      wakeLock=await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release',()=>{wakeLock=null});
+    }
+  }catch(e){}
+}
+document.addEventListener('pointerdown',keepAwake,{passive:true});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')keepAwake()});
+keepAwake();
+if('serviceWorker' in navigator&&location.protocol==='https:'&&location.hostname.endsWith('github.io')){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
 
 S=load();
 if(S)renderAll();else{S=null;openSetup();
